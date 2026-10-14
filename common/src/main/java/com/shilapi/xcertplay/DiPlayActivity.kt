@@ -542,6 +542,7 @@ class DiPlayActivity : AppCompatActivity() {
         section(content, "Tesla 兼容（实验）") { card ->
             renderedRootState = rootState()
             val config = TeslaHttpCompatibility.config(this)
+            val compatibilityDescription = label("主要用于帮助屏蔽私有网段访问的车机绕过地址限制，访问手机上的本地服务。除 Tesla 外，有同类限制的其他品牌车机也可尝试。", 14, MUTED)
             card.addView(ui.preference("连接方案", config.mode.label) {
                 MaterialAlertDialogBuilder(this).setTitle("Tesla 连接方案")
                     .setSingleChoiceItems(TeslaHttpMode.entries.map { it.label }.toTypedArray(), config.mode.ordinal) { dialog, index ->
@@ -554,6 +555,7 @@ class DiPlayActivity : AppCompatActivity() {
                     }.setNegativeButton("取消", null).show()
             }.apply { isEnabled = !webBusy && !awaitingTeslaVpnConsent })
             if (config.mode == TeslaHttpMode.VPN) {
+                card.addView(compatibilityDescription)
                 toggle(card, "启用免 Root Tesla 兼容", "需要 Android VPN 授权，无需 Root 或 Shizuku；可能与其他 VPN 冲突。", config.enabled,
                     enabled = !webBusy && !awaitingTeslaVpnConsent) { setTeslaHttpEnabled(it) }
                 teslaStatus = label("", 14, MUTED)
@@ -578,6 +580,7 @@ class DiPlayActivity : AppCompatActivity() {
             rootRow.addView(label(RootAccess.status, 14, MUTED).apply { maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
             card.addView(rootRow)
+            card.addView(compatibilityDescription)
             if (RootAccess.granted) {
                 toggle(card, "启用 Tesla 兼容", "将 HTTP / HTTPS 低位端口及自定义 IP 共享给热点设备。", config.enabled, enabled = !webBusy) {
                     setTeslaHttpEnabled(it)
