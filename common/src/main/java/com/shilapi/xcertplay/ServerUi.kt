@@ -53,29 +53,6 @@ internal class ServerUi(private val context: Context) {
 
     fun preference(title: String, value: String, action: () -> Unit) = PreferenceRow(title, value, action)
 
-    /** Settings category with a full-width title and supporting text. */
-    fun category(title: String, summary: String, action: () -> Unit) = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = android.view.Gravity.CENTER_VERTICAL
-        minimumHeight = dp(80)
-        setPadding(0, dp(16), 0, dp(16))
-        val attributes = context.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
-        background = attributes.getDrawable(0)
-        attributes.recycle()
-        addView(column().apply {
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-            addView(text(title, 17, TEXT, true))
-            addView(text(summary, 14, MUTED).apply { setPadding(0, dp(4), 0, 0) })
-        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
-        addView(android.widget.ImageView(context).apply {
-            setImageResource(R.drawable.ic_settings_chevron)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(dp(24), dp(24)))
-        contentDescription = "$title，$summary"
-        isFocusable = true
-        setOnClickListener { action() }
-    }
-
     /** A whole-row preference target; its value is separate from its stable title. */
     inner class PreferenceRow(private val title: String, value: String, action: () -> Unit) : LinearLayout(context) {
         private val valueView = text(value, 16, MUTED).apply {
@@ -298,7 +275,12 @@ internal class ServerUi(private val context: Context) {
             view.setPadding(view.paddingLeft, topInset, view.paddingRight, view.paddingBottom)
         }
         private fun updateStatusScrim() {
-            statusScrim.alpha = ((pages[selected]?.scrollY ?: 0).toFloat() / dp(24)).coerceIn(0f, 1f)
+            statusScrim.alpha = ((pageScroll[selected] ?: pages[selected]?.scrollY ?: 0).toFloat() / dp(24)).coerceIn(0f, 1f)
+        }
+        private val pageScroll = mutableMapOf<String, Int>()
+        fun setPageScroll(id: String, offset: Int) {
+            pageScroll[id] = offset
+            if (selected == id) updateStatusScrim()
         }
         fun select(id: String) {
             if (id !in ids || selected == id) return

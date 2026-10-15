@@ -4,15 +4,11 @@ package com.shilapi.xcertplay
 
 import android.Manifest
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.materialswitch.MaterialSwitch
-import com.google.android.material.textfield.TextInputLayout
-import com.google.android.material.textfield.TextInputEditText
 import com.shilapi.xcertplay.web.WebSession
 import com.shilapi.xcertplay.web.RootAccess
 import com.shilapi.xcertplay.web.LanAddresses
 import com.shilapi.xcertplay.web.TeslaHttpCompatibility
 import com.shilapi.xcertplay.web.LanTls
-import com.shilapi.xcertplay.web.WebListenSettings
 import com.shilapi.xcertplay.web.BrowserExperienceLink
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.network.TeslaHttpMode
@@ -21,30 +17,22 @@ import io.github.g00fy2.quickie.ScanQRCode
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
 import android.content.res.Configuration
-import android.graphics.Color
-import android.graphics.BitmapFactory
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.compose.ui.platform.ComposeView
+import com.shilapi.xcertplay.settings.*
 import androidx.lifecycle.ViewModelProvider
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.widget.doAfterTextChanged
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import java.io.File
@@ -61,26 +49,12 @@ class DiPlayActivity : AppCompatActivity() {
     private val ui by lazy { ServerUi(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var page = "service"
-    private enum class SettingsCategory(val title: String, val summary: String) {
-        CONNECTION("iPhone 连接", "自动连接、已配对的 iPhone、无线连接"),
-        DISPLAY("画面与串流", "昼夜模式、尺寸、安全区域、视频编码"),
-        AUDIO("音频与麦克风", "音频输出、麦克风来源、音频缓冲"),
-        VEHICLE("车厂与定位", "OEM 名称和图标、定位来源、导航输出"),
-        BROWSER("浏览器设备", "设备管理、浏览器离线后的处理"),
-        WEB("Web 服务", "HTTP / HTTPS 端口、域名、证书"),
-        TESLA("Tesla 兼容（实验）", "免 Root VPN、Root 路由、热点访问 IP"),
-        AUTHENTICATION("CarPlay 认证资源", "从 DiPlay APK 导入或选择自定义资源"),
-        HELP("帮助与关于", "应用权限、连接帮助、诊断报告、源码")
-    }
-    private var settingsCategory: SettingsCategory? = null
-    private var settingsView: ScrollView? = null
-    private val settingsScrollPositions = mutableMapOf<String, Int>()
-    private val settingsPageKey get() = settingsCategory?.name ?: "index"
+    private val settingsModel by lazy { ViewModelProvider(this)[SettingsViewModel::class.java] }
+    private var settingsView: ComposeView? = null
+    private val settingsDialogs = SettingsDialogHost()
     private lateinit var shell: ServerUi.Shell
     private var webAddress: TextView? = null
     private var webInterface: TextView? = null
-    private var teslaStatus: TextView? = null
-    private var renderedRootState: Triple<Boolean, Boolean, String>? = null
     private var webBusy = false
     private var awaitingTeslaVpnConsent = false
     private val teslaVpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -145,14 +119,11 @@ class DiPlayActivity : AppCompatActivity() {
     private var initialLaunch = true
     private var notificationTransport = true
     private var exportInProgress = false
-    private var exportButton: Button? = null
-    private var audioOutputStatus: TextView? = null
-    private var microphoneSourceStatus: TextView? = null
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         connect(notificationTransport)
     }
     private val tick = object : Runnable {
-        override fun run() { refreshStatus(); refreshService(); refreshRootSettings(); refreshAudioRoutes(); handler.postDelayed(this, 1000) }
+        override fun run() { refreshStatus(); refreshService(); refreshSettingsRuntime(); handler.postDelayed(this, 1000) }
     }
     private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) choosePhone() else permissionHelp("附近设备", "请允许访问附近设备，以连接已配对的 iPhone。")
@@ -242,14 +213,8 @@ class DiPlayActivity : AppCompatActivity() {
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
             ?: if (setupError == null) "service" else "settings"
-        settingsCategory = savedInstanceState?.getString("settingsCategory")?.let { name ->
-            SettingsCategory.entries.firstOrNull { it.name == name }
-        }
         if (savedInstanceState == null && page == "settings" && setupError != null) {
-            settingsCategory = SettingsCategory.AUTHENTICATION
-        }
-        savedInstanceState?.getBundle("settingsScrollPositions")?.let { positions ->
-            positions.keySet().forEach { settingsScrollPositions[it] = positions.getInt(it) }
+            settingsModel.open(SettingsCategory.AUTHENTICATION)
         }
         createShell()
         startWebServiceIfReady()
@@ -266,7 +231,7 @@ class DiPlayActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
-                    page == "settings" && settingsCategory != null -> showSettingsCategory(null)
+                    page == "settings" && settingsModel.state.value.category != null -> settingsModel.open(null)
                     page != "service" -> navigate("service")
                     else -> moveTaskToBack(true)
                 }
@@ -279,18 +244,13 @@ class DiPlayActivity : AppCompatActivity() {
         if (!handleAuthenticationIntent(intent)) navigate(intent.getStringExtra("page") ?: "service")
     }
     override fun onSaveInstanceState(outState: Bundle) {
-        rememberSettingsScroll()
         outState.putString("page", page)
-        outState.putString("settingsCategory", settingsCategory?.name)
-        outState.putBundle("settingsScrollPositions", Bundle().apply {
-            settingsScrollPositions.forEach { (key, offset) -> putInt(key, offset) }
-        })
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
         outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
     override fun onConfigurationChanged(newConfig: Configuration) {
-        rememberSettingsScroll()
+        settingsView?.disposeComposition()
         super.onConfigurationChanged(newConfig)
         createShell()
     }
@@ -316,7 +276,7 @@ class DiPlayActivity : AppCompatActivity() {
         }
     }
     override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
-    override fun onDestroy() { pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
+    override fun onDestroy() { settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
         "home", "wireless-recovery" -> "phone"
@@ -328,7 +288,7 @@ class DiPlayActivity : AppCompatActivity() {
     private fun navigate(destination: String) {
         val target = normalizedPage(destination)
         if (target == "settings") {
-            showSettingsCategory(if (setupError != null) SettingsCategory.AUTHENTICATION else null)
+            settingsModel.open(if (setupError != null) SettingsCategory.AUTHENTICATION else null)
         }
         shell.select(target)
         page = target
@@ -341,7 +301,11 @@ class DiPlayActivity : AppCompatActivity() {
         page = initial
         shell.put("service", ui.content(::service))
         refreshPhone()
-        refreshSettings(settingsScrollPositions[settingsPageKey] ?: 0)
+        settingsView = ComposeView(this).apply {
+            id = R.id.settings_compose
+            setContent { SettingsRoute(settingsModel, settingsActions, settingsDialogs) { shell.setPageScroll("settings", it) } }
+        }.also { shell.put("settings", it) }
+        refreshSettings()
         setContentView(shell.root)
         refreshService()
     }
@@ -357,28 +321,92 @@ class DiPlayActivity : AppCompatActivity() {
         refreshSettings()
     }
 
-    private fun rememberSettingsScroll() {
-        settingsView?.takeIf { it.isLaidOut }?.let {
-            settingsScrollPositions[settingsPageKey] = it.scrollY
+    private fun refreshSettings() {
+        settingsModel.reload()
+        refreshSettingsRuntime()
+    }
+
+    private fun refreshSettingsRuntime() {
+        val session = CarPlayBackgroundSession.snapshot()
+        val audioStatus = when {
+            session == null -> "当前：未连接 iPhone"
+            AirPlayPersistence.loadBrowserAudioPlayback(this) && WebSession.audio.playbackReady && session.sink.isRemoteMediaAvailable() -> "当前输出：车机浏览器"
+            AirPlayPersistence.loadBrowserAudioPlayback(this) -> "当前输出：Android（浏览器尚未就绪或已离线）"
+            else -> "当前输出：Android"
+        }
+        val source = AirPlayPersistence.loadMicrophoneSource(this)
+        val microphoneStatus = when {
+            source == CarPlayMicrophoneSource.DISABLED -> "当前：麦克风已禁用"
+            session == null -> "当前：未连接 iPhone"
+            source == CarPlayMicrophoneSource.BROWSER && WebSession.audio.microphoneReady -> "输入来源：浏览器（按需采集）"
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED -> "Android 麦克风未授权；浏览器未就绪时无法输入语音"
+            source == CarPlayMicrophoneSource.BROWSER -> "输入来源：Android（浏览器麦克风尚未就绪）"
+            else -> "输入来源：Android（按需采集）"
+        }
+        val compatibility = TeslaHttpCompatibility.status
+        val teslaConfig = TeslaHttpCompatibility.config(this)
+        val teslaMessage = if (!teslaConfig.enabled) "已关闭"
+            else if (!WebSession.running && setupError != null) "导入认证资源后启动"
+            else compatibility.error ?: compatibility.address?.let {
+                if (compatibility.mode == TeslaHttpMode.VPN) "免 Root 地址已配置：$it；热点与车机访问需实测"
+                else "Root 热点路由已启用：$it（${compatibility.downstreams.joinToString()}）；请用车机测试访问"
+            } ?: "正在准备${teslaConfig.mode.label}…"
+        settingsModel.updateRuntime(SettingsRuntime(
+            authenticationError = setupError, importing = DiPlayBootstrap.importing, webBusy = webBusy,
+            awaitingVpnConsent = awaitingTeslaVpnConsent, exporting = exportInProgress,
+            rootGranted = RootAccess.granted, rootChecking = RootAccess.checking, rootStatus = RootAccess.status,
+            teslaStatus = teslaMessage, audioStatus = audioStatus, microphoneStatus = microphoneStatus,
+            version = version(), fingerprint = WebSession.tls?.fingerprint
+        ))
+    }
+
+    private val settingsActions by lazy {
+        SettingsActions(
+            choice = { setting, index -> changeSettings { applySettingsEffect(settingsModel.choose(setting, index)) }?.let(::toast) },
+            toggle = { setting, checked -> changeSettings { applySettingsEffect(settingsModel.toggle(setting, checked)) }?.let(::toast) },
+            text = { setting, value -> changeSettings { applySettingsEffect(settingsModel.edit(setting, value)) } },
+            credentials = { ssid, password -> changeSettings { settingsModel.saveCredentials(ssid, password) } },
+            margins = { margins -> changeSettings { applySettingsEffect(settingsModel.saveMargins(margins)) }?.let(::toast) },
+            resetBranding = { includeName -> changeSettings { settingsModel.resetBranding(includeName) }?.let(::toast) },
+            command = { command -> changeSettings { settingsCommand(command) }?.let(::toast) },
+            renameBrowser = { id, name -> changeSettings { settingsModel.renameBrowser(id, name) }?.let(::toast) },
+            removeBrowser = { id -> changeSettings { settingsModel.removeBrowser(id) }?.let(::toast) }
+        )
+    }
+
+    private fun changeSettings(action: () -> Unit): String? = runCatching {
+        action(); refreshSettings(); refreshService()
+    }.exceptionOrNull()?.let { it.message ?: "设置保存失败" }
+
+    private fun applySettingsEffect(effect: SettingsEffect) {
+        when (effect) {
+            SettingsEffect.None -> Unit
+            is SettingsEffect.Reconnect -> if (CarPlayBackgroundSession.hasSession()) connect(effect.wireless ?: AirPlayPersistence.loadWirelessEnabled(this))
+            is SettingsEffect.WebUpdate -> configureWeb(effect.message, effect.operation)
+            is SettingsEffect.TeslaEnabled -> setTeslaHttpEnabled(effect.enabled)
         }
     }
 
-    private fun showSettingsCategory(category: SettingsCategory?) {
-        rememberSettingsScroll()
-        settingsCategory = category
-        refreshSettings(settingsScrollPositions[settingsPageKey] ?: 0)
-    }
-
-    private fun refreshSettings(scrollY: Int? = null) {
-        // onCreate can be followed by several renders before the restored view is laid out.
-        val offset = scrollY ?: settingsView?.takeIf { it.isLaidOut }?.scrollY
-            ?: settingsScrollPositions[settingsPageKey] ?: 0
-        exportButton = null
-        teslaStatus = null
-        audioOutputStatus = null
-        microphoneSourceStatus = null
-        renderedRootState = rootState()
-        settingsView = ui.content(::settings).also { shell.put("settings", it, offset) }
+    private fun settingsCommand(command: SettingsCommand) {
+        when (command) {
+            SettingsCommand.SELECT_PHONE -> choosePhone()
+            SettingsCommand.HOTSPOT_SETTINGS -> openCarWifiSettings()
+            SettingsCommand.REQUEST_ROOT -> configureWeb("Root 已授权") { RootAccess.request().also { TeslaHttpCompatibility.retry() } }
+            SettingsCommand.RETRY_ROOT -> TeslaHttpCompatibility.retry()
+            SettingsCommand.ENABLE_VPN -> setTeslaHttpEnabled(true)
+            SettingsCommand.SELECT_ICON -> oemImagePicker.launch("image/*")
+            SettingsCommand.IMPORT_APK -> if (canImportAuthentication()) launchAuthenticationPicker { selectAuthenticationApk.launch(arrayOf("*/*")) }
+            SettingsCommand.IMPORT_FILES -> if (canImportAuthentication()) launchAuthenticationPicker { selectAuthenticationKey.launch(arrayOf("*/*")) }
+            SettingsCommand.SELECT_PEM -> pemCertificatePicker.launch(arrayOf("*/*"))
+            SettingsCommand.SELECT_PKCS12 -> pkcs12Picker.launch(arrayOf("*/*"))
+            SettingsCommand.APP_PERMISSIONS -> openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            SettingsCommand.BLUETOOTH_SETTINGS -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            SettingsCommand.WIRELESS_HELP -> wirelessHelp()
+            SettingsCommand.EXPORT_REPORT -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) exportDiagnostics() else chooseReportDestination()
+            SettingsCommand.DIPLAY -> openSystem(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/shihabal3amri/DiPlay")))
+            SettingsCommand.SOURCE -> openSystem(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/fython/wheelplay")))
+            SettingsCommand.DOWNLOAD -> openSystem(Intent(Intent.ACTION_VIEW, Uri.parse("https://shihabal3amri.github.io/DiPlay/")))
+        }
     }
 
     private fun service(content: LinearLayout) {
@@ -444,14 +472,6 @@ class DiPlayActivity : AppCompatActivity() {
                 ?: "未找到局域网地址，请连接 Wi-Fi" else "正在启动服务…"
         if (webAddress?.text?.toString() != addressText) webAddress?.text = addressText
         webInterface?.text = primary?.let { it.description + if (it.hostname.isNotEmpty()) "\n直接 IP：${it.ipUrl}" else "" }.orEmpty()
-        val compatibility = TeslaHttpCompatibility.status
-        val teslaConfig = TeslaHttpCompatibility.config(this)
-        teslaStatus?.text = if (!teslaConfig.enabled) "已关闭"
-            else if (!WebSession.running && setupError != null) "导入认证资源后启动"
-            else compatibility.error ?: compatibility.address?.let {
-                if (compatibility.mode == TeslaHttpMode.VPN) "免 Root 地址已配置：$it；热点与车机访问需实测"
-                else "Root 热点路由已启用：$it（${compatibility.downstreams.joinToString()}）；请用车机测试访问"
-            } ?: "正在准备${teslaConfig.mode.label}…"
         webInterface?.visibility = if (primary == null) View.GONE else View.VISIBLE
         if (displayedAddresses != addresses) {
             displayedAddresses = addresses
@@ -521,494 +541,6 @@ class DiPlayActivity : AppCompatActivity() {
         setupError?.let { content.addView(label(it, 16, WARNING)) }
     }
 
-    private fun settings(content: LinearLayout) {
-        val category = settingsCategory
-        if (category == null) {
-            content.addView(label("设置", 30, TEXT, true))
-            content.addView(label("选择分类以调整 CarPlay 和浏览器体验。", 16, MUTED).apply {
-                setPadding(0, dp(8), 0, dp(16))
-            })
-            ui.card(content, "本项目基于 DiPlay 修改", R.drawable.ic_server_launch) { body ->
-                body.addView(label("如果车机可以直接安装任意 Android 应用，可以尝试直接使用 DiPlay 以获得更佳的体验。本项目旨在通过浏览器提供无侵入 CarPlay 支持。", 15, MUTED))
-                body.contentDescription = "本项目基于 DiPlay 修改。点击打开 DiPlay GitHub 项目"
-                body.setOnClickListener {
-                    runCatching {
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/shihabal3amri/DiPlay")))
-                    }.onFailure { toast("未找到可打开网页的浏览器") }
-                }
-            }
-            for (entry in SettingsCategory.entries) {
-                val summary = if (entry == SettingsCategory.AUTHENTICATION && setupError != null)
-                    "尚未配置有效资源 · 导入后可启动 CarPlay" else entry.summary
-                content.addView(ui.category(entry.title, summary) { showSettingsCategory(entry) })
-            }
-            return
-        }
-        content.addView(button("返回设置", false, R.drawable.ic_settings_back) {
-            showSettingsCategory(null)
-        }, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(16) })
-        content.addView(label(category.title, 30, TEXT, true))
-        val note = when (category) {
-            SettingsCategory.DISPLAY -> "昼夜模式立即生效；修改画面或串流参数会重新连接。"
-            SettingsCategory.AUDIO -> "音频输出和缓冲立即生效；修改麦克风来源会重新连接。"
-            SettingsCategory.VEHICLE, SettingsCategory.CONNECTION -> "修改后在下次连接 iPhone 生效。"
-            else -> category.summary
-        }
-        content.addView(label(note, 16, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
-        when (category) {
-            SettingsCategory.CONNECTION -> connectionSettings(content)
-            SettingsCategory.DISPLAY -> displaySettings(content)
-            SettingsCategory.AUDIO -> audioSettings(content)
-            SettingsCategory.VEHICLE -> vehicleSettings(content)
-            SettingsCategory.BROWSER -> browserSettings(content)
-            SettingsCategory.WEB -> webSettings(content)
-            SettingsCategory.TESLA -> teslaSettings(content)
-            SettingsCategory.AUTHENTICATION -> authenticationSettings(content)
-            SettingsCategory.HELP -> helpSettings(content)
-        }
-    }
-
-    private fun connectionSettings(content: LinearLayout) {
-        section(content, "自动连接") { card ->
-            toggle(card, "打开应用时自动连接", "使用上次的连接方式和已选择的 iPhone。", DiPlayPreferences.autoConnect(this)) { DiPlayPreferences.saveAutoConnect(this, it) }
-            toggle(card, "设备启动后打开", "需要系统允许应用自启动。", AirPlayPersistence.loadAutoStartOnBoot(this)) { AirPlayPersistence.saveAutoStartOnBoot(this, it) }
-            card.addView(ui.preference("iPhone", selectedPhoneName()) { choosePhone() }, matchButton())
-        }
-        section(content, "无线连接") { card -> wirelessLinkControls(card) }
-    }
-
-    private fun displaySettings(content: LinearLayout) {
-        val card = content
-        val appearances = CarPlayAppearance.entries
-        experienceChoice(card, "CarPlay 昼夜模式", appearances.map { it.label },
-            appearances.indexOf(AirPlayPersistence.loadAppearance(this))) {
-            WebSession.setAppearance(this, appearances[it])
-        }
-        card.addView(label("即时发送给 iPhone；跟随 Android 时使用此服务设备的系统昼夜模式。", 14, MUTED))
-        carPlaySizeControl(card)
-        safeAreaControl(card)
-        toggle(card, "自适应浏览器尺寸", "按车机浏览器的实际画面比例协商 CarPlay 分辨率；浏览器尺寸变化时会重新连接。", AirPlayPersistence.loadAdaptiveBrowserSize(this)) {
-            AirPlayPersistence.saveAdaptiveBrowserSize(this, it)
-            WebSession.setAdaptiveBrowserSize(it)
-        }
-        choice(card, "分辨率", listOf("原始分辨率", "80% · 降低负载", "60% · 最低负载"), listOf(10, 8, 6).indexOf(AirPlayPersistence.loadDisplayScaleTenths(this)).coerceAtLeast(0)) { AirPlayPersistence.saveDisplayScaleTenths(this, listOf(10, 8, 6)[it]) }
-        choice(card, "协商帧率", listOf("30 fps · 较低负载", "60 fps · 更流畅"), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
-        val technologies = com.shilapi.xcertplay.web.StreamTechnology.entries
-        choice(card, "串流技术", technologies.map { it.label },
-            technologies.indexOf(AirPlayPersistence.loadStreamTechnology(this))) {
-            AirPlayPersistence.saveStreamTechnology(this, technologies[it])
-        }
-        card.addView(label("WebRTC 支持 H.264 / HEVC 直通，浏览器不支持时自动回退 JPEG（约 15 fps）。追求 60 fps 请将协商帧率设为 60；实际帧率以网页显示为准。", 14, MUTED))
-        val recoveryPolicies = com.shilapi.xcertplay.web.RtcRecoveryPolicy.entries
-        choice(card, "WebRTC 卡顿容忍时间", recoveryPolicies.map { it.label },
-            recoveryPolicies.indexOf(AirPlayPersistence.loadRtcRecoveryPolicy(this))) {
-            AirPlayPersistence.saveRtcRecoveryPolicy(this, recoveryPolicies[it])
-        }
-        card.addView(label("短暂断流时保留最后一帧并等待恢复，持续异常超过所选时间才回退 JPEG。不增加视频缓冲；不支持的编码或彻底失败的连接仍立即回退。下次浏览器连接生效。", 14, MUTED))
-        toggle(card, "允许 iPhone 使用 HEVC", "下次连接生效。需要浏览器支持 HEVC / WebRTC，否则回退 JPEG；关闭时使用 H.264。", AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
-        toggle(card, "右舵布局", "将 CarPlay 控件移到右侧。", AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
-    }
-
-    private fun audioSettings(content: LinearLayout) {
-        val card = content
-        val bufferPresets = com.shilapi.xcertplay.media.MediaAudioBuffer.presets
-        choice(card, "音频缓冲", listOf("300 ms · 默认", "500 ms", "1000 ms · 更稳定"),
-            bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
-            WebSession.setMediaBufferMillis(this, bufferPresets[it])
-        }
-        val outputs = CarPlayAudioOutput.entries
-        experienceChoice(card, "音频输出", outputs.map { it.label }, if (AirPlayPersistence.loadBrowserAudioPlayback(this)) 1 else 0) {
-            WebSession.setBrowserAudioPlayback(this, outputs[it] == CarPlayAudioOutput.BROWSER)
-            refreshAudioRoutes()
-        }
-        audioOutputStatus = label("", 14, MUTED).also(card::addView)
-        card.addView(label("即时切换。浏览器未就绪或离线时回退 Android；浏览器可能需要点击页面才能播放声音。", 14, MUTED))
-        val microphones = CarPlayMicrophoneSource.entries
-        experienceChoice(card, "麦克风来源", microphones.map { it.label },
-            microphones.indexOf(AirPlayPersistence.loadMicrophoneSource(this)), reconnect = true) {
-            WebSession.setMicrophoneSource(this, microphones[it])
-            refreshAudioRoutes()
-        }
-        microphoneSourceStatus = label("", 14, MUTED).also(card::addView)
-        card.addView(label("修改后重新连接。浏览器麦克风需要可信 HTTPS 和授权，未就绪时回退 Android；禁用会停止上传并取消麦克风能力声明。", 14, MUTED))
-        refreshAudioRoutes()
-    }
-
-    private fun vehicleSettings(content: LinearLayout) {
-        section(content, "OEM 车厂名称与图标") { card -> oemControls(card) }
-        section(content, "定位") { card ->
-            locationSourceControl(card)
-            card.addView(label("默认由 iPhone 和导航 App 定位。选择 Android 后，在 iPhone 请求时提供这台设备的定位数据，需要 Android 精确定位权限。下次连接 iPhone 生效。", 14, MUTED))
-        }
-        val simulatedManufacturerName = AirPlayPersistence.loadSimulatedManufacturerName(this)
-        if (com.shilapi.xcertplay.hud.BydOutputSettings.available(this)) section(content, "$simulatedManufacturerName 导航输出") { card ->
-            toggle(card, "抬头显示与仪表导航",
-                "在兼容的 $simulatedManufacturerName 设备上显示导航箭头、距离与路名，支持情况取决于车型。",
-                com.shilapi.xcertplay.hud.BydOutputSettings.enabled(this)) { com.shilapi.xcertplay.hud.BydOutputSettings.setEnabled(this, it) }
-        }
-    }
-
-    private fun browserSettings(content: LinearLayout) {
-        val card = content
-        card.addView(label("配对后的浏览器会被记住，下次打开时自动恢复配对；选择启动选项后，点击网页上的「启动显示」。", 16, MUTED))
-        card.addView(ui.preference("连接过的设备", "查看、重命名或移除浏览器") { showBrowserDevices() })
-        val policies = BrowserOfflinePolicy.entries
-        experienceChoice(card, "浏览器离线后的处理", policies.map { it.label },
-            policies.indexOf(AirPlayPersistence.loadBrowserOfflinePolicy(this))) {
-            WebSession.setBrowserOfflinePolicy(this, policies[it])
-        }
-        card.addView(label("计时从 CarPlay 会话启动且无浏览器连接时开始；浏览器重连会取消计时。超时只断开 iPhone，Web 服务保持运行。", 14, MUTED))
-    }
-
-    private fun webSettings(content: LinearLayout) {
-        section(content, "Web 监听") { card ->
-            card.addView(ui.preference("HTTP 端口", WebListenSettings.httpPort(this).toString()) {
-                textInput("HTTP 监听端口（1024–65535）", WebListenSettings.httpPort(this).toString(), false) { value ->
-                    val port = value.toIntOrNull()
-                    if (port == null || port !in 1024..65535) toast("HTTP 监听端口必须为 1024–65535")
-                    else configureWeb("HTTP 端口已保存，浏览器请使用新地址重新连接") { WebSession.setHttpPort(this, port) }
-                }
-            }.apply { isEnabled = !webBusy })
-            card.addView(ui.preference("Web 域名（可选）", WebListenSettings.hostname(this).ifEmpty { "使用 IP 地址" }) {
-                textInput("Web 域名（可选）", WebListenSettings.hostname(this), false) { value ->
-                    configureWeb("Web 域名已保存") { WebSession.setHostname(this, value.lowercase(Locale.ROOT)) }
-                }
-            }.apply { isEnabled = !webBusy })
-            card.addView(label("监听设置无需 Root。Web 域名同时用于 HTTP 和 HTTPS，需解析到实际访问的 IP；填写不会自动配置 DNS，自定义 HTTPS 证书需覆盖此域名。", 14, MUTED))
-            toggle(card, "启用 HTTPS", "为浏览器提供 HTTPS 访问；浏览器麦克风需要可信证书。", WebListenSettings.httpsEnabled(this), enabled = !webBusy) {
-                configureWeb(if (it) "HTTPS 已开启" else "HTTPS 已关闭") { WebSession.setHttpsEnabled(this, it) }
-            }
-            if (WebListenSettings.httpsEnabled(this)) {
-                card.addView(ui.preference("Web HTTPS 端口", WebListenSettings.httpsPort(this).toString()) {
-                    textInput("HTTPS 监听端口（1024–65535）", WebListenSettings.httpsPort(this).toString(), false) { value ->
-                        val port = value.toIntOrNull()
-                        if (port == null || port !in 1024..65535) toast("HTTPS 监听端口必须为 1024–65535")
-                        else configureWeb("HTTPS 端口已保存，浏览器请使用新端口") { WebSession.setHttpsPort(this, port) }
-                    }
-                }.apply { isEnabled = !webBusy })
-                certificateControls(card)
-            }
-        }
-    }
-
-    private fun teslaSettings(content: LinearLayout) {
-        val card = content
-        renderedRootState = rootState()
-        val config = TeslaHttpCompatibility.config(this)
-        val compatibilityDescription = label("主要用于帮助屏蔽私有网段访问的车机绕过地址限制，访问手机上的本地服务。除 Tesla 外，有同类限制的其他品牌车机也可尝试。", 14, MUTED)
-        card.addView(ui.preference("连接方案", config.mode.label) {
-            MaterialAlertDialogBuilder(this).setTitle("Tesla 连接方案")
-                .setSingleChoiceItems(TeslaHttpMode.entries.map { it.label }.toTypedArray(), config.mode.ordinal) { dialog, index ->
-                    val selected = TeslaHttpMode.entries[index]
-                    if (selected != config.mode) {
-                        TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(mode = selected, enabled = false))
-                        render(); refreshService()
-                    }
-                    dialog.dismiss()
-                }.setNegativeButton("取消", null).show()
-        }.apply { isEnabled = !webBusy && !awaitingTeslaVpnConsent })
-        if (config.mode == TeslaHttpMode.VPN) {
-            card.addView(compatibilityDescription)
-            toggle(card, "启用免 Root Tesla 兼容", "需要 Android VPN 授权，无需 Root 或 Shizuku；可能与其他 VPN 冲突。", config.enabled,
-                enabled = !webBusy && !awaitingTeslaVpnConsent) { setTeslaHttpEnabled(it) }
-            teslaStatus = label("", 14, MUTED)
-            card.addView(teslaStatus)
-            card.addView(ui.preference("访问 IP 地址", config.vpnAddress) {
-                textInput("免 Root 访问 IP 地址", config.vpnAddress, false) { value ->
-                    runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(vpnAddress = value)) }
-                        .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "访问 IP 无效") }
-                }
-            }.apply { isEnabled = !webBusy && !awaitingTeslaVpnConsent })
-            card.addView(label("请让车机连接此手机的系统热点，使用 http://${config.vpnAddress}:${WebListenSettings.httpPort(this)}。此方案可能不兼容部分手机或车机，系统更新后可能失效。有线 CarPlay 已连接时，启用或修改 IP 将等待断开后生效。", 14, MUTED))
-            card.addView(label("直接使用 Web 监听端口，无低位端口映射。可选 HTTPS 仍需车机信任证书；WebRTC 视频需单独验证。", 14, MUTED))
-            card.addView(button("授权或重试 VPN", false) { setTeslaHttpEnabled(true) }
-                .apply { isEnabled = !webBusy && !awaitingTeslaVpnConsent }, ui.secondaryButtonLayout(12))
-            card.addView(button("打开热点设置", false) { openCarWifiSettings() }, ui.secondaryButtonLayout(12))
-            return
-        }
-        val rootRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        rootRow.addView(button("请求 Root 权限", false) {
-            configureWeb("Root 已授权") { RootAccess.request().also { TeslaHttpCompatibility.retry() } }
-        }.apply { isEnabled = !webBusy && !RootAccess.checking })
-        rootRow.addView(label(RootAccess.status, 14, MUTED).apply { maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END },
-            LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
-        card.addView(rootRow)
-        card.addView(compatibilityDescription)
-        if (RootAccess.granted) {
-            toggle(card, "启用 Tesla 兼容", "将 HTTP / HTTPS 低位端口及自定义 IP 共享给热点设备。", config.enabled, enabled = !webBusy) {
-                setTeslaHttpEnabled(it)
-            }
-            teslaStatus = label("", 14, MUTED)
-            card.addView(teslaStatus)
-            card.addView(ui.preference("映射 HTTP 端口", "${config.httpMappingPort} → ${WebListenSettings.httpPort(this)}") {
-                textInput("映射 HTTP 端口（1–1023）", config.httpMappingPort.toString(), false) { value ->
-                    saveTeslaMapping(value, https = false)
-                }
-            }.apply { isEnabled = !webBusy })
-            card.addView(ui.preference("映射 HTTPS 端口", "${config.httpsMappingPort} → " +
-                if (WebListenSettings.httpsEnabled(this)) WebListenSettings.httpsPort(this).toString() else "HTTPS 已关闭") {
-                textInput("映射 HTTPS 端口（1–1023）", config.httpsMappingPort.toString(), false) { value ->
-                    saveTeslaMapping(value, https = true)
-                }
-            }.apply { isEnabled = !webBusy })
-            card.addView(ui.preference("访问 IP 地址", config.address) {
-                textInput("访问 IP 地址", config.address, false) { value ->
-                    runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(address = value)) }
-                        .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "访问 IP 无效") }
-                }
-            }.apply { isEnabled = !webBusy })
-            card.addView(label("映射只作用于此访问 IP，不改变 Web 监听端口。HTTPS 映射仅在 HTTPS 开启时生效；请开启系统热点，自定义证书需覆盖访问 IP 或域名。", 14, MUTED))
-            card.addView(button("重新启动 Root 路由", false) { TeslaHttpCompatibility.retry() }, ui.secondaryButtonLayout(12))
-            card.addView(button("打开热点设置", false) { openCarWifiSettings() }, ui.secondaryButtonLayout(12))
-        }
-    }
-
-    private fun authenticationSettings(content: LinearLayout) {
-        val card = content
-        card.addView(label(if (DiPlayBootstrap.importing) "正在本机导入…" else if (setupError == null)
-            "资源已就绪 · 私钥与证书校验通过" else "尚未配置有效资源", 16, if (setupError == null) TEXT else WARNING))
-        card.addView(label("开源安装包不包含认证资源。可选择现有的两份文件，或下载 DiPlay 官网 APK 后在此导入，无需安装 DiPlay。", 14, MUTED))
-        card.addView(button("从 DiPlay APK 导入", false) {
-            if (canImportAuthentication()) launchAuthenticationPicker { selectAuthenticationApk.launch(arrayOf("*/*")) }
-        }.apply { isEnabled = !DiPlayBootstrap.importing }, ui.secondaryButtonLayout(12))
-        card.addView(button("手动选择认证资源", false) {
-            if (canImportAuthentication()) MaterialAlertDialogBuilder(this)
-                .setTitle("选择两份匹配的资源")
-                .setMessage("先选择 identity.pk8（PKCS#8 私钥），再选择 certificate.p7b（P-256 证书）。两份文件必须来自同一套资源；取消或校验失败不会替换原有资源。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("选择私钥") { _, _ -> launchAuthenticationPicker { selectAuthenticationKey.launch(arrayOf("*/*")) } }.show()
-        }.apply { isEnabled = !DiPlayBootstrap.importing }, ui.secondaryButtonLayout(12))
-        card.addView(ui.preference("DiPlay 官网下载", "下载 APK 后返回导入，或分享给 WheelPlay") {
-            openSystem(Intent(Intent.ACTION_VIEW, Uri.parse("https://shihabal3amri.github.io/DiPlay/")))
-        })
-        card.addView(label("仅提取认证资源并保存在此设备的应用私有目录，不上传。导入结束后删除临时 APK；卸载 WheelPlay 将删除已导入资源。", 14, MUTED))
-    }
-
-    private fun helpSettings(content: LinearLayout) {
-        section(content, "权限与连接帮助") { card ->
-            card.addView(label("附近设备权限用于连接 iPhone，麦克风用于 Siri 和通话。旧版 Android 的无线连接还需要定位权限，USB 模式可能请求本地 VPN 授权。", 16, MUTED))
-            card.addView(ui.preference("浏览器 HTTPS 证书", "查看本设备证书指纹") {
-                val fingerprint = WebSession.tls?.fingerprint
-                MaterialAlertDialogBuilder(this)
-                    .setTitle("浏览器 HTTPS 证书指纹")
-                    .setMessage(if (!WebListenSettings.httpsEnabled(this)) "HTTPS 已关闭，请在 Web 监听中开启。"
-                        else if (fingerprint == null) "HTTPS 服务正在准备或启动失败，请稍后重试。"
-                        else "请在车机安装证书前，与浏览器页面显示的 SHA-256 指纹逐字核对：\n\n$fingerprint")
-                    .setPositiveButton("关闭", null)
-                    .show()
-            })
-            card.addView(button("应用权限", false) { openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }, ui.secondaryButtonLayout(16))
-            card.addView(button("系统蓝牙设置", false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, ui.secondaryButtonLayout(12))
-            card.addView(button("无线连接帮助", false) { wirelessHelp() }, ui.secondaryButtonLayout(12))
-        }
-        section(content, "关于与诊断") { card ->
-            card.addView(label("${getString(R.string.app_name)} · ${version()}", 17, TEXT, true))
-            exportButton = button(if (exportInProgress) "正在保存报告…" else "保存诊断报告", false) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) exportDiagnostics()
-                else chooseReportDestination()
-            }.apply { isEnabled = !exportInProgress }
-            card.addView(exportButton, ui.secondaryButtonLayout(12))
-            val destination = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "报告保存到 Downloads/WheelPlay。" else "请选择报告保存位置。"
-            card.addView(label(destination + "不会自动上传，报告排除协议载荷和凭据。", 14, MUTED).apply { setPadding(0, dp(12), 0, 0) })
-            card.addView(label("基于 xcertplay / DiPlay，保留 GPL-3.0 与 AGPL-3.0 许可声明。CarPlay 与 NIO 图标属于各自权利人。", 13, MUTED).apply { setPadding(0, dp(20), 0, 0) })
-        }
-        section(content, "开源") { card ->
-            card.addView(ui.preference("源码地址", "github.com/fython/wheelplay") {
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/fython/wheelplay")))
-                }.onFailure { toast("未找到可打开网页的浏览器") }
-            })
-        }
-    }
-
-    private fun oemControls(card: LinearLayout) {
-        val name = AirPlayPersistence.loadSimulatedManufacturerName(this)
-        val custom = AirPlayPersistence.loadCustomAirPlayIconFile(this)?.let {
-            BitmapFactory.decodeFile(it.absolutePath)
-        }
-        val preview = ImageView(this).apply {
-            contentDescription = "CarPlay 车厂图标预览"
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setImageBitmap(custom ?: BitmapFactory.decodeResource(resources, R.raw.ic_car_home))
-        }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(preview, LinearLayout.LayoutParams(dp(72), dp(72)))
-            addView(column().apply {
-                addView(label(name, 20, TEXT, true))
-                addView(label(if (custom != null) "自定义图标" else "默认 NIO 图标", 14, MUTED))
-            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(16) })
-        }
-        card.addView(row)
-        card.addView(label("显示在 CarPlay 应用列表的「返回车机」入口。名称与图标可分别修改，下次连接 iPhone 生效。", 14, MUTED).apply {
-            setPadding(0, dp(12), 0, dp(8))
-        })
-        card.addView(ui.preference("车厂名称", name) {
-            textInput("车厂名称（留空恢复 NIO）", name, false) {
-                AirPlayPersistence.saveSimulatedManufacturerName(this, it)
-                render()
-                toast("车厂名称已保存，下次连接 iPhone 生效")
-            }
-        })
-        card.addView(button("选择车厂图标", false) {
-            runCatching { oemImagePicker.launch("image/*") }
-                .onFailure { toast("此设备没有可用的图片选择器，请先安装文件管理器后重试") }
-        }, ui.secondaryButtonLayout(12))
-        card.addView(label("选择图片后可拖动、缩放并裁剪为正方形。图标保存在本机，原图片删除后仍可使用。", 14, MUTED))
-        card.addView(button("恢复默认图标", false) {
-            runCatching { AirPlayPersistence.clearCustomAirPlayIcon(this) }
-                .onSuccess { render(); toast("已恢复默认图标，下次连接 iPhone 生效") }
-                .onFailure { toast("无法恢复默认图标，请重试") }
-        }.apply { isEnabled = AirPlayPersistence.loadCustomAirPlayIconFile(this@DiPlayActivity) != null }, ui.secondaryButtonLayout(12))
-        card.addView(button("恢复默认名称与图标", false) {
-            MaterialAlertDialogBuilder(this).setTitle("恢复默认车厂设置？")
-                .setMessage("车厂名称和图标将恢复为 NIO。下次连接 iPhone 生效。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("恢复默认") { _, _ ->
-                    runCatching {
-                        AirPlayPersistence.clearCustomAirPlayIcon(this)
-                        AirPlayPersistence.saveSimulatedManufacturerName(this, AirPlayPersistence.DEFAULT_SIMULATED_MANUFACTURER_NAME)
-                    }.onSuccess { render(); toast("已恢复默认车厂设置") }
-                        .onFailure { toast("无法恢复默认车厂设置，请重试") }
-                }.show()
-        }, ui.secondaryButtonLayout(12))
-    }
-
-    private fun locationSourceControl(card: LinearLayout) {
-        val options = listOf("iPhone 自身定位（默认）", "Android 设备定位")
-        val control = ui.preference("定位来源", options[if (AirPlayPersistence.loadLocationReportingEnabled(this)) 1 else 0]) {}
-        control.setOnClickListener {
-            var selected = if (AirPlayPersistence.loadLocationReportingEnabled(this)) 1 else 0
-            MaterialAlertDialogBuilder(this).setTitle("定位来源")
-                .setSingleChoiceItems(options.toTypedArray(), selected) { _, index -> selected = index }
-                .setPositiveButton("保存") { _, _ ->
-                    AirPlayPersistence.saveLocationReportingEnabled(this, selected == 1)
-                    control.setValue(options[selected])
-                    toast("定位来源已保存，下次连接 iPhone 生效")
-                }.setNegativeButton("取消", null).show()
-        }
-        card.addView(control, matchButton())
-    }
-
-    private fun experienceChoice(card: LinearLayout, title: String, options: List<String>, initial: Int,
-        reconnect: Boolean = false, save: (Int) -> Unit) {
-        var selection = initial
-        val control = ui.preference(title, options[selection]) {}
-        control.setOnClickListener {
-            var pending = selection
-            MaterialAlertDialogBuilder(this).setTitle(title)
-                .setSingleChoiceItems(options.toTypedArray(), selection) { _, index -> pending = index }
-                .setPositiveButton("保存") { _, _ ->
-                    if (pending != selection) {
-                        save(pending)
-                        selection = pending
-                        control.setValue(options[selection])
-                        if (reconnect) reconnectForPreference()
-                    }
-                }.setNegativeButton("取消", null).show()
-        }
-        card.addView(control, matchButton())
-    }
-
-    private fun reconnectForPreference() {
-        if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
-        else toast("已保存，下次连接 iPhone 生效")
-    }
-
-    private fun refreshAudioRoutes() {
-        val session = CarPlayBackgroundSession.snapshot()
-        audioOutputStatus?.text = when {
-            session == null -> "当前：未连接 iPhone"
-            AirPlayPersistence.loadBrowserAudioPlayback(this) && WebSession.audio.playbackReady && session.sink.isRemoteMediaAvailable() -> "当前输出：车机浏览器"
-            AirPlayPersistence.loadBrowserAudioPlayback(this) -> "当前输出：Android（浏览器尚未就绪或已离线）"
-            else -> "当前输出：Android"
-        }
-        val source = AirPlayPersistence.loadMicrophoneSource(this)
-        microphoneSourceStatus?.text = when {
-            source == CarPlayMicrophoneSource.DISABLED -> "当前：麦克风已禁用"
-            session == null -> "当前：未连接 iPhone"
-            source == CarPlayMicrophoneSource.BROWSER && WebSession.audio.microphoneReady -> "输入来源：浏览器（按需采集）"
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED -> "Android 麦克风未授权；浏览器未就绪时无法输入语音"
-            source == CarPlayMicrophoneSource.BROWSER -> "输入来源：Android（浏览器麦克风尚未就绪）"
-            else -> "输入来源：Android（按需采集）"
-        }
-    }
-
-    private fun safeAreaControl(card: LinearLayout) {
-        val margins = AirPlayPersistence.loadSafeMargins(this)
-        val summary = when {
-            margins == null -> {
-                val size = WebSession.currentBrowserViewport ?: (1280 to 720)
-                if (AirPlayPersistence.loadSafeAreaRect(this, size.first, size.second) != null) "保留已有安全区域" else "全屏"
-            }
-            margins.isFullScreen -> "全屏"
-            else -> "上 ${margins.top}% · 下 ${margins.bottom}% · 左 ${margins.left}% · 右 ${margins.right}%"
-        }
-        card.addView(ui.preference("画面安全区域", summary) { editSafeArea() })
-        card.addView(label("为被车机控件遮挡的边缘设置留白，按画面比例适配分辨率。保存后重新连接，让 iPhone 在安全区域内布局；触控坐标仍覆盖完整画面。", 14, MUTED))
-    }
-
-    private fun editSafeArea() {
-        val current = AirPlayPersistence.loadSafeMargins(this) ?: CarPlaySafeMargins()
-        val values = listOf(current.top, current.bottom, current.left, current.right)
-        val names = listOf("上边留白", "下边留白", "左边留白", "右边留白")
-        val inputs = mutableListOf<TextInputEditText>()
-        val content = column().apply { setPadding(dp(24), dp(8), dp(24), 0) }
-        val validation = label("每边 0–40%，0 表示不留白。", 14, MUTED)
-        var previewMargins = current
-        val preview = object : View(this) {
-            override fun onDraw(canvas: android.graphics.Canvas) {
-                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                val border = dp(8).toFloat()
-                val w = width - 2 * border; val h = height - 2 * border
-                paint.color = SURFACE
-                canvas.drawRect(border, border, border + w, border + h, paint)
-                paint.color = ACCENT
-                paint.alpha = 100
-                canvas.drawRect(border + w * previewMargins.left / 100, border + h * previewMargins.top / 100,
-                    border + w * (100 - previewMargins.right) / 100, border + h * (100 - previewMargins.bottom) / 100, paint)
-            }
-        }.apply { contentDescription = "画面安全区域预览" }
-        content.addView(preview, LinearLayout.LayoutParams(-1, dp(112)))
-        content.addView(label("高亮区域为 CarPlay 布局区域", 14, MUTED))
-        for (index in names.indices) {
-            val field = TextInputLayout(this).apply {
-                hint = names[index]; suffixText = "%"; boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            }
-            val input = TextInputEditText(field.context).apply {
-                setSingleLine(); inputType = android.text.InputType.TYPE_CLASS_NUMBER; setText(values[index].toString())
-            }
-            inputs.add(input); field.addView(input, LinearLayout.LayoutParams(-1, -2))
-            input.doAfterTextChanged {
-                runCatching {
-                    val parts = inputs.map { it.text.toString().toInt() }
-                    if (parts.size == 4) CarPlaySafeMargins(parts[0], parts[1], parts[2], parts[3]) else null
-                }.getOrNull()?.let { previewMargins = it; preview.invalidate() }
-            }
-            content.addView(field, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        }
-        content.addView(validation)
-        val dialog = MaterialAlertDialogBuilder(this).setTitle("画面安全区域").setView(ScrollView(this).apply { addView(content) })
-            .setNegativeButton("取消", null).setNeutralButton("恢复全屏") { _, _ ->
-                AirPlayPersistence.saveSafeMargins(this, CarPlaySafeMargins())
-                render(); reconnectForPreference()
-            }.setPositiveButton("保存", null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val result = runCatching {
-                    val parts = inputs.map { it.text.toString().toIntOrNull() ?: error("请输入 0–40 的整数") }
-                    CarPlaySafeMargins(parts[0], parts[1], parts[2], parts[3])
-                }
-                result.onSuccess {
-                    AirPlayPersistence.saveSafeMargins(this, it)
-                    dialog.dismiss(); render(); reconnectForPreference()
-                }.onFailure { validation.text = it.message ?: "请输入有效的留白比例"; validation.setTextColor(WARNING) }
-            }
-        }
-        dialog.show()
-    }
-
     private fun refreshAuthentication() {
         setupError = if (DiPlayBootstrap.importing) "正在导入认证资源，请稍候"
         else runCatching { DiPlayBootstrap.ensure(this) }.exceptionOrNull()?.let {
@@ -1037,69 +569,16 @@ class DiPlayActivity : AppCompatActivity() {
 
     private fun handleAuthenticationIntent(incoming: Intent): Boolean {
         if (incoming.action != Intent.ACTION_SEND && incoming.action != Intent.ACTION_VIEW) return false
-        showSettingsCategory(SettingsCategory.AUTHENTICATION)
+        settingsModel.open(SettingsCategory.AUTHENTICATION)
         shell.select("settings")
         page = "settings"
         val uri = AuthenticationImportIntents.apk(incoming)
         if (uri == null) { toast("无法读取 APK，请在设置中通过文件选择器导入"); return true }
         if (!canImportAuthentication()) return true
-        MaterialAlertDialogBuilder(this).setTitle("从此 APK 导入认证资源？")
-            .setMessage("WheelPlay 只在本机读取 DiPlay APK 内的两份认证资源，不安装 APK。校验通过后将替换原有资源。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("导入") { _, _ -> authenticationImport.import(apk = uri) }.show()
+        settingsDialogs.confirm("从此 APK 导入认证资源？", "WheelPlay 只在本机读取 DiPlay APK 内的两份认证资源，不安装 APK。校验通过后将替换原有资源。") {
+            authenticationImport.import(apk = uri)
+        }
         return true
-    }
-
-    private fun rootState() = Triple(RootAccess.granted, RootAccess.checking, RootAccess.status)
-
-    private fun refreshRootSettings() {
-        if (!webBusy && settingsCategory == SettingsCategory.TESLA && renderedRootState != rootState()) {
-            refreshSettings()
-        }
-    }
-
-    private fun certificateControls(card: LinearLayout) {
-        card.addView(label("证书类型", 16, TEXT))
-        val current = WebListenSettings.certificateType(this)
-        val group = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
-        for (type in WebListenSettings.CertificateType.entries) {
-            group.addView(com.google.android.material.radiobutton.MaterialRadioButton(this).apply {
-                id = View.generateViewId(); text = type.label; tag = type
-                minimumHeight = dp(48); isChecked = type == current; isEnabled = !webBusy
-            }, RadioGroup.LayoutParams(-1, -2))
-        }
-        group.setOnCheckedChangeListener { _, checked ->
-            val type = group.findViewById<View>(checked)?.tag as? WebListenSettings.CertificateType ?: return@setOnCheckedChangeListener
-            if (type == WebListenSettings.CertificateType.DEFAULT) {
-                configureWeb("已恢复默认本地证书") {
-                    WebSession.restoreDefaultCertificate(this).also { if (it == null) WebListenSettings.saveCertificateType(this, type) }
-                }
-            } else {
-                WebListenSettings.saveCertificateType(this, type)
-                render()
-            }
-        }
-        card.addView(group)
-        when (current) {
-            WebListenSettings.CertificateType.DEFAULT -> Unit
-            WebListenSettings.CertificateType.PEM -> card.addView(button("选择 PEM 证书与私钥", false) {
-                pemCertificatePicker.launch(arrayOf("*/*"))
-            }.apply { isEnabled = !webBusy }, ui.secondaryButtonLayout(8))
-            WebListenSettings.CertificateType.PKCS12 -> card.addView(button("选择 PKCS#12 文件", false) {
-                pkcs12Picker.launch(arrayOf("*/*"))
-            }.apply { isEnabled = !webBusy }, ui.secondaryButtonLayout(8))
-        }
-        val identity = if (LanTls.hasCustom(this)) "当前使用自定义证书" else "当前使用默认本地证书"
-        card.addView(label(identity + "。证书和私钥保存在 App 私有存储。PEM 依次选择证书链、私钥；PKCS#12 可选择私钥条目。", 14, MUTED))
-    }
-
-    private fun saveTeslaMapping(value: String, https: Boolean) {
-        val port = value.toIntOrNull()
-        if (port == null || port !in 1..1023) { toast("映射端口必须为 1–1023"); return }
-        runCatching {
-            val config = TeslaHttpCompatibility.config(this)
-            TeslaHttpCompatibility.save(this, if (https) config.copy(httpsMappingPort = port) else config.copy(httpMappingPort = port))
-        }.onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "端口映射保存失败") }
     }
 
     private fun setTeslaHttpEnabled(enabled: Boolean) {
@@ -1159,119 +638,7 @@ class DiPlayActivity : AppCompatActivity() {
         openSystem(Intent(Settings.ACTION_WIRELESS_SETTINGS))
     }
 
-    // Wi-Fi Direct is the default link. The car's own hotspot is an alternative when Wi-Fi Direct is unstable.
-    // The runtime config rejects manual mode without valid credentials, so it is only saved together with them.
-    private fun wirelessLinkControls(parent: LinearLayout) {
-        val carHotspot = AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL
-        val options = arrayOf("Wi-Fi Direct · 默认", "设备热点")
-        val control = ui.preference("连接网络", if (carHotspot) "设备热点" else "Wi-Fi Direct") {}
-        control.setOnClickListener {
-            var selection = if (carHotspot) 1 else 0
-            MaterialAlertDialogBuilder(this).setTitle("连接网络")
-                .setSingleChoiceItems(options, selection) { _, index -> selection = index }
-                .setPositiveButton(if (CarPlayBackgroundSession.hasSession()) "应用并重新连接" else "保存") { _, _ ->
-                    when {
-                        (selection == 1) == carHotspot -> Unit
-                        selection == 0 -> applyWirelessLink(WirelessHotspotMode.WIFI_P2P)
-                        hotspotError(storedSsid(), storedPassword()) == null -> applyWirelessLink(WirelessHotspotMode.MANUAL)
-                        else -> askHotspotCredentials { ssid, password ->
-                            saveHotspotCredentials(ssid, password)
-                            applyWirelessLink(WirelessHotspotMode.MANUAL)
-                        }
-                    }
-                }.setNegativeButton("取消", null).show()
-        }
-        parent.addView(control, matchButton(0))
-        if (!carHotspot) {
-            parent.addView(label("由此设备创建 Wi-Fi Direct 网络供 iPhone 连接。", 14, MUTED))
-            return
-        }
-        val ssid = storedSsid()
-        val password = storedPassword()
-        parent.addView(ui.preference("热点名称", ssid) {
-            textInput("热点名称", ssid, secret = false, preserveWhitespace = true) { value ->
-                hotspotError(value, password)?.let { toast(it); return@textInput }
-                saveHotspotCredentials(value, password)
-                render()
-            }
-        }, matchButton(0))
-        parent.addView(ui.preference("热点密码", if (password.isEmpty()) "未设置" else "•".repeat(8)) {
-            textInput("热点密码", password, secret = true) { value ->
-                hotspotError(ssid, value)?.let { toast(it); return@textInput }
-                saveHotspotCredentials(ssid, value)
-                render()
-            }
-        }, matchButton(0))
-        parent.addView(label("先在系统设置中开启热点，在此填写相同名称与密码。iPhone 会连接该网络，修改在下次连接生效。", 14, MUTED).apply {
-            setPadding(0, dp(8), 0, 0)
-        })
-    }
-
     private fun selectedPhoneName() = if (DiPlayPreferences.phoneAddress(this) == null) "未选择" else DiPlayPreferences.phoneName(this)
-
-    private fun storedSsid() = AirPlayPersistence.loadManualHotspotSsid(this)
-    private fun storedPassword() = AirPlayPersistence.loadManualHotspotPassphrase(this)
-    private fun hotspotError(ssid: String, password: String) =
-        com.shilapi.xcertplay.orchestration.ManualHotspotValidation.validate(ssid, password)
-
-    private fun saveHotspotCredentials(ssid: String, password: String) {
-        AirPlayPersistence.saveManualHotspotSsid(this, ssid)
-        AirPlayPersistence.saveManualHotspotPassphrase(this, password)
-        AirPlayPersistence.saveManualHotspotSecurity(this,
-            com.shilapi.xcertplay.orchestration.ManualHotspotValidation.securityFor(password))
-        AirPlayPersistence.saveManualHotspotBand(this, com.shilapi.xcertplay.orchestration.ManualHotspotBand.AUTO)
-        AirPlayPersistence.saveManualHotspotChannel(this, 0)
-    }
-
-    private fun askHotspotCredentials(done: (String, String) -> Unit) {
-        textInput("热点名称", storedSsid(), secret = false, preserveWhitespace = true) { ssid ->
-            textInput("热点密码", storedPassword(), secret = true) { password ->
-                val error = hotspotError(ssid, password)
-                if (error != null) toast(error) else done(ssid, password)
-            }
-        }
-    }
-
-    private fun applyWirelessLink(mode: WirelessHotspotMode) {
-        AirPlayPersistence.saveWirelessHotspotMode(this, mode)
-        render()
-        if (CarPlayBackgroundSession.hasSession()) connect(true)
-    }
-
-    private fun showBrowserDevices() {
-        val devices = WebSession.rememberedBrowsers(this).list()
-        if (devices.isEmpty()) {
-            MaterialAlertDialogBuilder(this).setTitle("连接过的浏览器")
-                .setMessage("还没有记住的浏览器。首次在网页扫码或输入配对码后会自动保存。")
-                .setPositiveButton("关闭", null).show()
-            return
-        }
-        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        val items = devices.map { "${it.name}\n最近连接：${date.format(Date(it.lastUsedAt))} · ${it.peer}" } + "移除全部设备"
-        MaterialAlertDialogBuilder(this).setTitle("连接过的浏览器（${devices.size}）")
-            .setItems(items.toTypedArray()) { _, index ->
-                if (index == devices.size) {
-                    MaterialAlertDialogBuilder(this).setTitle("移除全部浏览器？")
-                        .setMessage("当前浏览器连接会断开，所有浏览器下次使用时需要重新扫码或输入配对码。")
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("移除全部") { _, _ -> WebSession.forgetAllBrowsers(this); showBrowserDevices() }.show()
-                } else {
-                    val device = devices[index]
-                    MaterialAlertDialogBuilder(this).setTitle(device.name)
-                        .setMessage("首次配对：${date.format(Date(device.createdAt))}\n最近连接：${date.format(Date(device.lastUsedAt))}\n最近地址：${device.peer}")
-                        .setNeutralButton("重命名") { _, _ ->
-                            textInput("浏览器名称", device.name, secret = false) {
-                                WebSession.rememberedBrowsers(this).rename(device.id, it)
-                                showBrowserDevices()
-                            }
-                        }
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("移除设备") { _, _ ->
-                            WebSession.forgetBrowser(this, device.id); showBrowserDevices()
-                        }.show()
-                }
-            }.setNegativeButton("关闭", null).show()
-    }
 
     private fun readCertificateFile(uri: Uri): ByteArray = contentResolver.openInputStream(uri)?.use(LanTls::readImport)
         ?: error("无法打开所选文件")
@@ -1313,9 +680,7 @@ class DiPlayActivity : AppCompatActivity() {
                             }
                         }
                         if (aliases.size == 1) choose(aliases.single())
-                        else MaterialAlertDialogBuilder(this).setTitle("选择 PKCS#12 私钥条目")
-                            .setItems(aliases.toTypedArray()) { _, index -> choose(aliases[index]) }
-                            .setNegativeButton("取消") { _, _ -> clear() }.setOnCancelListener { clear() }.show()
+                        else settingsDialogs.select("选择 PKCS#12 私钥条目", aliases, ::clear) { index -> choose(aliases[index]) }
                     }
             }
         }, "https-pkcs12-read").start()
@@ -1323,39 +688,7 @@ class DiPlayActivity : AppCompatActivity() {
 
     private fun textInput(title: String, current: String, secret: Boolean, preserveWhitespace: Boolean = false,
         onCancel: () -> Unit = {}, save: (String) -> Unit) {
-        val field = TextInputLayout(this).apply {
-            hint = title
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            if (secret) endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
-        }
-        val input = TextInputEditText(field.context).apply {
-            setText(current)
-            setSingleLine()
-            isSaveEnabled = !secret
-            inputType = if (secret) {
-                android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            } else {
-                android.text.InputType.TYPE_CLASS_TEXT
-            }
-        }
-        field.addView(input, LinearLayout.LayoutParams(-1, -2))
-        val container = column().apply { setPadding(dp(24), dp(8), dp(24), 0); addView(field) }
-        MaterialAlertDialogBuilder(this).setTitle(title).setView(container)
-            .setPositiveButton("保存") { _, _ ->
-                save(input.text.toString().let { if (secret || preserveWhitespace) it else it.trim() })
-            }
-            .setNegativeButton("取消") { _, _ -> onCancel() }.setOnCancelListener { onCancel() }.show()
-    }
-
-    private fun carPlaySizeControl(parent: LinearLayout) {
-        val sizes = com.shilapi.xcertplay.airplay.CarPlaySize.entries
-        val current = com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(this))
-        choice(parent, "CarPlay 显示尺寸", sizes.map { it.label }, sizes.indexOf(current)) {
-            AirPlayPersistence.saveWidthPhysicalMm(this, sizes[it].widthMillimeters)
-        }
-        parent.addView(label("调整 CarPlay 图标和文字大小，应用后会重新连接。", 14, MUTED).apply {
-            setPadding(0, 0, 0, dp(16))
-        })
+        settingsDialogs.input(title, current, secret, preserveWhitespace, onCancel, save)
     }
 
     private fun connect(wireless: Boolean) {
@@ -1507,7 +840,7 @@ class DiPlayActivity : AppCompatActivity() {
     private fun exportDiagnostics(uri: Uri? = null) {
         if (exportInProgress) return
         exportInProgress = true
-        exportButton?.apply { isEnabled = false; text = "正在保存报告…" }
+        refreshSettingsRuntime()
         val appContext = applicationContext
         val fileName = reportFileName()
         Thread({
@@ -1545,7 +878,7 @@ class DiPlayActivity : AppCompatActivity() {
             runOnUiThread {
                 exportInProgress = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                exportButton?.apply { isEnabled = true; text = "保存诊断报告" }
+                refreshSettingsRuntime()
                 if (result.isSuccess) {
                     MaterialAlertDialogBuilder(this).setTitle("诊断报告已保存")
                         .setMessage(if (uri == null) "Downloads/WheelPlay/$fileName" else "报告已保存到所选位置。")
@@ -1567,46 +900,13 @@ class DiPlayActivity : AppCompatActivity() {
     private fun openSystem(intent: Intent) { runCatching { startActivity(intent) }.onFailure { toast("请从此设备的系统设置中打开该选项。") } }
     private fun toast(message: String) { com.google.android.material.snackbar.Snackbar.make(shell.root, message, com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show() }
     private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
-    private fun section(parent: LinearLayout, title: String, build: (LinearLayout) -> Unit) =
-        ui.section(parent, title, content = build)
-    private fun toggle(parent: LinearLayout, title: String, description: String, value: Boolean, enabled: Boolean = true, save: (Boolean) -> Unit) {
-        val line = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, dp(12)) }
-        val text = column(); text.addView(label(title, 18, TEXT, true)); text.addView(label(description, 14, MUTED).apply { setPadding(0, dp(4), 0, 0) })
-        line.addView(text, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
-        line.addView(MaterialSwitch(this).apply { contentDescription = title; isChecked = value; isEnabled = enabled; minHeight = dp(48); setOnCheckedChangeListener { _, checked -> save(checked) } })
-        parent.addView(line)
-    }
-    private fun choice(parent: LinearLayout, title: String, options: List<String>, current: Int, save: (Int) -> Unit) {
-        var selection = current
-        val control = ui.preference(title, options[selection].substringBefore(" · ")) {}
-        control.setOnClickListener {
-            var pendingSelection = selection
-            MaterialAlertDialogBuilder(this).setTitle(title)
-                .setSingleChoiceItems(options.toTypedArray(), selection) { _, index -> pendingSelection = index }
-                .setPositiveButton(if (CarPlayBackgroundSession.hasSession()) "应用并重新连接" else "保存") { _, _ ->
-                    if (pendingSelection != selection) {
-                        selection = pendingSelection
-                        save(selection)
-                        control.setValue(options[selection].substringBefore(" · "))
-                        if (CarPlayBackgroundSession.hasSession()) {
-                            connect(AirPlayPersistence.loadWirelessEnabled(this))
-                        }
-                    }
-                }.setNegativeButton("取消", null).show()
-        }
-        parent.addView(control, matchButton(0))
-    }
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }
-    private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }
     private fun label(value: String, size: Int, color: Int, bold: Boolean = false) = ui.text(value, size, color, bold)
     private fun button(title: String, primary: Boolean, @androidx.annotation.DrawableRes iconRes: Int = 0, click: () -> Unit) = ui.button(title, primary, iconRes, click)
     private fun matchButton(top: Int = 0) = LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(top) }
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)) }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     companion object {
-        private val BG = ServerUi.BG
-        private val SURFACE = ServerUi.SURFACE
-        private val BORDER = ServerUi.BORDER
         private val ACCENT = ServerUi.ACCENT
         private val TEXT = ServerUi.TEXT
         private val MUTED = ServerUi.MUTED

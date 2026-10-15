@@ -71,6 +71,8 @@ Canvas 模式需要蔚来等车机实测：若遮罩只覆盖原生视频元素�
 
 ## 构建
 
+Android 设置界面使用 Jetpack Compose。分类页面与共用控件位于 `common/src/main/java/com/shilapi/xcertplay/settings/`；`SettingsViewModel` 管理偏好与可恢复的导航状态，`DiPlayActivity` 协调系统权限、文件选择和服务操作。`SettingsScreen.kt` 提供手机及大字体预览，设置交互测试通过 Robolectric 和 Compose 语义节点执行。
+
 使用 Android NDK 28.2.13676358 和 CMake 3.22.1。首次构建会从 GitHub 获取固定版本的 libdatachannel 及 Mbed TLS；后续复用本地 CMake 缓存。运行 `./gradlew :mobile:assembleDebug`。
 
 源码构建默认不包含 CarPlay 认证资源。未配置有效资源时不会启动 Web 服务或 CarPlay；导入校验通过后自动启动 Web 服务。包内自带有效资源的安装包可直接使用，仍允许用户导入替换，且用户资源优先。在 **设置 → CarPlay 认证资源** 中手动选择 `identity.pk8` 和 `certificate.p7b`，或通过下载入口获取 DiPlay 官网 APK，再选择“从 DiPlay APK 导入”；也可在文件管理器中将该 APK 分享给 WheelPlay，无需安装 DiPlay。导入在本机完成，校验私钥与证书匹配后才替换原有资源；资源保存在应用私有目录，不上传、不参与备份。详见 [认证资源导入说明](docs/AUTHENTICATION_IMPORT.md)。
