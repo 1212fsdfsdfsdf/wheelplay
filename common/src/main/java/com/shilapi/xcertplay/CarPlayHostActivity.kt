@@ -349,6 +349,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var startAfterHandshakeReset = false
     private var restartGeneration = 0
     private var reconnectScheduled = false
+    private var automaticReconnectAllowed = true
     private var sessionLog: SessionLogFile? = null
     private var gestureSequenceActive = false
     private var gestureTracking = false
@@ -2377,6 +2378,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 hotspotStatus.copy(state = "Connecting Bluetooth")
             CarPlayStatus.RunningWireless ->
                 hotspotStatus.copy(state = "Running")
+            CarPlayStatus.WirelessActiveFallback ->
+                hotspotStatus.copy(state = "Active (Bluetooth control)")
             CarPlayStatus.WirelessActive ->
                 hotspotStatus.copy(state = "Active")
             CarPlayStatus.AttachingNetwork ->
@@ -2623,6 +2626,7 @@ class CarPlayHostActivity : ComponentActivity() {
             rightHandDrive = rightHandDrive,
             hevc = hevcEnabled,
             microphone = AirPlayPersistence.loadMicrophoneSource(this) != CarPlayMicrophoneSource.DISABLED,
+            microphoneOpus = com.shilapi.xcertplay.media.OpusEncoderSupport.isAvailable(),
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
             oemLabel = normalizedManufacturer(),
@@ -2881,6 +2885,7 @@ class CarPlayHostActivity : ComponentActivity() {
         controllerGeneration: Int,
     ): (CarPlayStatus) -> Unit = { status ->
         if (!menuOpen && controllerGeneration == restartGeneration) {
+            if (status is CarPlayStatus.Failed && !status.automaticRetry) automaticReconnectAllowed = false
             updateHotspotStatus(status)
             val description = status.describe()
             setConnectionStage(description)
@@ -2889,7 +2894,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     wifiRecoveryButton?.visibility = View.VISIBLE
                 } else {
                     wifiRecoveryButton?.visibility = View.GONE
-                    reconnectAfterLoss(description)
+                    if (status.automaticRetry) reconnectAfterLoss(description)
                 }
                 else -> Unit
             }
@@ -2946,6 +2951,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
+        automaticReconnectAllowed = true
         if (DiPlayBootstrap.importing) {
             setConnectionStage("认证资源正在导入，请完成后重新连接")
             return
@@ -3136,6 +3142,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun reconnectAfterLoss(reason: String) {
+        if (!automaticReconnectAllowed) return
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
         if (reconnectScheduled) return
@@ -3152,7 +3159,7 @@ class CarPlayHostActivity : ComponentActivity() {
             {
                 reconnectScheduled = false
                 if (
-                    shuttingDown.get() ||
+                    !automaticReconnectAllowed || shuttingDown.get() ||
                     menuOpen ||
                     handshakeResetInProgress ||
                     generation != restartGeneration
@@ -3462,6 +3469,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.WaitingForPairedIphone -> "Waiting for paired iPhone"
         CarPlayStatus.ConnectingBluetooth -> "Connecting Bluetooth"
         CarPlayStatus.RunningWireless -> "Wireless CarPlay control running"
+        CarPlayStatus.WirelessActiveFallback -> "Wireless CarPlay active with Bluetooth control"
         CarPlayStatus.WirelessActive -> "Wireless CarPlay active"
         CarPlayStatus.DiscoveringIphone -> "Discovering iPhone"
         CarPlayStatus.WaitingForIphone -> "Waiting for iPhone over USB"
