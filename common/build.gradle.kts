@@ -52,3 +52,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
 }
+
+// Android 16 Robolectric ApplicationSharedMemory uses the JDK FileDescriptor accessor.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+}
