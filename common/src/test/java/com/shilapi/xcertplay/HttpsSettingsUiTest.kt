@@ -7,7 +7,6 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.ScrollView
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.radiobutton.MaterialRadioButton
@@ -43,7 +42,7 @@ class HttpsSettingsUiTest {
         if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
     private fun all(activity: DiPlayActivity) = views(activity.window.decorView)
     private fun openSettings(activity: DiPlayActivity) {
-        all(activity).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
+        SettingsNavigation.open(activity, "Tesla 兼容（实验）")
     }
     private fun rootButton(activity: DiPlayActivity) = all(activity).filterIsInstance<MaterialButton>()
         .single { it.text.toString() == "请求 Root 权限" }
@@ -51,7 +50,7 @@ class HttpsSettingsUiTest {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
         while (System.nanoTime() < deadline) {
             shadowOf(android.os.Looper.getMainLooper()).idle()
-            if (predicate() && rootButton(activity).isEnabled) return
+            if (predicate() && !RootAccess.checking) return
             Thread.sleep(10)
         }
         fail("Settings update did not finish")
@@ -80,7 +79,7 @@ class HttpsSettingsUiTest {
             assertTrue(entered.await(2, TimeUnit.SECONDS))
             assertFalse(rootButton(activity).isEnabled)
             assertFalse(hasRow(activity, "映射 HTTP 端口"))
-            assertTrue(hasRow(activity, "HTTP 端口"))
+            assertFalse(hasRow(activity, "HTTP 端口"))
             release.countDown()
             waitForUi(activity) {
                 shadowOf(android.os.Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
@@ -116,7 +115,7 @@ class HttpsSettingsUiTest {
             assertEquals(1, requests.get())
             assertFalse(RootAccess.granted)
             assertFalse(hasRow(activity, "映射 HTTP 端口"))
-            assertTrue(hasRow(activity, "Web 域名（可选）"))
+            assertFalse(hasRow(activity, "Web 域名（可选）"))
             rootButton(activity).performClick()
             waitForUi(activity) { requests.get() == 2 && !RootAccess.checking }
         } finally { RootAccess.authorize = original; controller.pause().stop().destroy(); WebSession.stop() }
@@ -136,7 +135,9 @@ class HttpsSettingsUiTest {
             val button = rootButton(activity)
             val row = button.parent as ViewGroup
             val section = row.parent as ViewGroup
-            assertSame(row, section.getChildAt(1))
+            val mode = all(activity).single { it.contentDescription?.toString()?.startsWith("连接方案，") == true }
+            assertSame(section, mode.parent)
+            assertTrue(section.indexOfChild(mode) < section.indexOfChild(row))
             assertTrue(hasRow(activity, "连接方案"))
             button.performClick()
             waitForUi(activity) { RootAccess.granted }
@@ -160,6 +161,7 @@ class HttpsSettingsUiTest {
             assertFalse(RootAccess.granted)
             assertFalse(hasRow(activity, "映射 HTTP 端口"))
             assertFalse(hasRow(activity, "访问 IP 地址"))
+            SettingsNavigation.open(activity, "Web 服务")
             assertTrue(hasRow(activity, "HTTP 端口"))
             assertTrue(hasRow(activity, "Web 域名（可选）"))
             assertTrue(hasRow(activity, "Web HTTPS 端口"))
@@ -171,7 +173,7 @@ class HttpsSettingsUiTest {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         try {
-            openSettings(activity)
+            SettingsNavigation.open(activity, "Web 服务")
             assertEquals(listOf("默认本地证书", "PEM", "PKCS#12"),
                 all(activity).filterIsInstance<MaterialRadioButton>().map { it.text.toString() })
             for ((type, title) in listOf("PEM" to "选择 PEM 证书与私钥", "PKCS#12" to "选择 PKCS#12 文件")) {
@@ -191,11 +193,11 @@ class HttpsSettingsUiTest {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         try {
-            openSettings(activity)
+            SettingsNavigation.open(activity, "Web 服务")
             val http = all(activity).single { it.contentDescription?.toString()?.startsWith("HTTP 端口，") == true }
             val web = http.parent as ViewGroup
             assertTrue(views(web).any { it.contentDescription?.toString()?.startsWith("Web 域名（可选），") == true })
-            assertFalse(views(web).any { it === rootButton(activity) })
+            assertFalse(views(web).filterIsInstance<MaterialButton>().any { it.text.toString() == "请求 Root 权限" })
             all(activity).filterIsInstance<MaterialSwitch>().single { it.contentDescription == "启用 HTTPS" }.performClick()
             waitForUi(activity) { !WebListenSettings.httpsEnabled(activity) }
             assertFalse(hasRow(activity, "Web HTTPS 端口"))
@@ -209,7 +211,7 @@ class HttpsSettingsUiTest {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         try {
-            openSettings(activity)
+            SettingsNavigation.open(activity, "Web 服务")
             all(activity).single { it.contentDescription?.toString() == "Web HTTPS 端口，8443" }.performClick()
             val dialog = ShadowDialog.getLatestDialog() as AlertDialog
             val input = views(dialog.window!!.decorView).filterIsInstance<EditText>().single()
@@ -227,20 +229,14 @@ class HttpsSettingsUiTest {
         try {
             openSettings(activity)
             fun capture(name: String) {
-                val scroll = all(activity).filterIsInstance<ScrollView>().single { view ->
-                    views(view).filterIsInstance<TextView>().any { it.text.toString() == "Web 监听" }
-                }
+                val scroll = all(activity).filterIsInstance<ScrollView>().single { it.visibility == View.VISIBLE }
                 val body = scroll.getChildAt(0)
                 body.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                 body.layout(0, 0, body.measuredWidth, body.measuredHeight)
-                val headings = views(body).filterIsInstance<TextView>()
-                val top = headings.single { it.text.toString() == "Web 监听" }.top
-                val bottom = headings.single { it.text.toString() == "画面与音频" }.top
-                val bitmap = android.graphics.Bitmap.createBitmap(body.width, bottom - top, android.graphics.Bitmap.Config.ARGB_8888)
+                val bitmap = android.graphics.Bitmap.createBitmap(body.width, body.height, android.graphics.Bitmap.Config.ARGB_8888)
                 val canvas = android.graphics.Canvas(bitmap)
                 canvas.drawColor(ServerUi.BG)
-                canvas.translate(0f, -top.toFloat())
                 body.draw(canvas)
                 val file = java.io.File("build/reports/web-settings/$name.png")
                 file.parentFile!!.mkdirs()
@@ -251,6 +247,8 @@ class HttpsSettingsUiTest {
             rootButton(activity).performClick()
             waitForUi(activity) { RootAccess.granted }
             capture("with-root")
+            SettingsNavigation.open(activity, "Web 服务")
+            capture("web-service")
         } finally { RootAccess.authorize = original; controller.pause().stop().destroy(); WebSession.stop() }
     }
 }

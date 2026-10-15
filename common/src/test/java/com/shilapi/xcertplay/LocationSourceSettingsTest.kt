@@ -4,7 +4,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,7 +21,7 @@ class LocationSourceSettingsTest {
     private fun views(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
     private fun openSettings(activity: DiPlayActivity) {
-        views(activity.window.decorView).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
+        SettingsNavigation.open(activity, "车厂与定位")
     }
     private fun sourceRow(activity: DiPlayActivity) = views(activity.window.decorView)
         .filterIsInstance<ServerUi.PreferenceRow>().single { it.contentDescription.toString().startsWith("定位来源，") }

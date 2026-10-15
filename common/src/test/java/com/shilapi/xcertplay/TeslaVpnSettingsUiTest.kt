@@ -7,7 +7,6 @@ import android.net.VpnService
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.shilapi.xcertplay.network.TeslaHttpConfig
@@ -40,7 +39,7 @@ class TeslaVpnSettingsUiTest {
         if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
     private fun all(activity: DiPlayActivity) = views(activity.window.decorView)
     private fun openSettings(activity: DiPlayActivity) {
-        all(activity).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
+        SettingsNavigation.open(activity, "Tesla 兼容（实验）")
     }
     private fun enable(activity: DiPlayActivity) = all(activity).filterIsInstance<MaterialSwitch>()
         .single { it.contentDescription?.toString() == "启用免 Root Tesla 兼容" }

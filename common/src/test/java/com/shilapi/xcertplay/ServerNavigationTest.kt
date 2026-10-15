@@ -85,7 +85,7 @@ class ServerNavigationTest {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         val tabs = tabs(activity)
-        tabs.selectedItemId = 3
+        SettingsNavigation.open(activity, "iPhone 连接")
         val control = views(activity.window.decorView).filterIsInstance<MaterialSwitch>()
             .single { it.contentDescription == "打开应用时自动连接" }
         val enabled = !control.isChecked
@@ -96,9 +96,9 @@ class ServerNavigationTest {
         root.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
         root.layout(0, 0, 360, 800)
-        scroll.scrollTo(0, 160)
+        scroll.scrollTo(0, 48)
         val offset = scroll.scrollY
-        assertEquals(160, offset)
+        assertEquals(48, offset)
         tabs.selectedItemId = 2
         tabs.selectedItemId = 3
         assertEquals(offset, scroll.scrollY)

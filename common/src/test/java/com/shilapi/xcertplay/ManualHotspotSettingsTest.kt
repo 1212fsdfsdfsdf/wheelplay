@@ -4,7 +4,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.*
 import org.junit.Test
@@ -46,7 +45,7 @@ class ManualHotspotSettingsTest {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         try {
             val activity = controller.get()
-            views(activity.window.decorView).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
+            SettingsNavigation.open(activity, "iPhone 连接")
             block(activity)
             assertNull(shadowOf(activity).nextStartedActivity)
         } finally { controller.pause().stop().destroy() }

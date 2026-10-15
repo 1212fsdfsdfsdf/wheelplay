@@ -5,7 +5,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.web.WebSession
 import org.junit.Assert.*
 import org.junit.Test
@@ -39,7 +38,7 @@ class BrowserDeviceManagementTest {
         try {
             val devices = WebSession.rememberedBrowsers(activity)
             val original = devices.remember("Chrome · Android", "192.168.1.2")!!
-            views(activity.window.decorView).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
+            SettingsNavigation.open(activity, "浏览器设备")
             val entry = views(activity.window.decorView).single { it.contentDescription?.toString()?.startsWith("连接过的设备，") == true }
             entry.performClick()
             assertTrue(dialog().listView.adapter.getItem(0).toString().contains("Chrome · Android"))

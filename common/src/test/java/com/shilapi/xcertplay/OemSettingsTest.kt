@@ -15,7 +15,6 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
@@ -42,7 +41,7 @@ class OemSettingsTest {
     private fun button(activity: Activity, title: String) = views(activity.window.decorView)
         .filterIsInstance<Button>().single { it.text.toString() == title }
     private fun openSettings(activity: DiPlayActivity) {
-        views(activity.window.decorView).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
+        SettingsNavigation.open(activity, "车厂与定位")
     }
     private fun png(width: Int = 64, height: Int = 64): ByteArray {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }

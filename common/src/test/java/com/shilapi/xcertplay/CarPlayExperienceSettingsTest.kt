@@ -4,7 +4,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
 import com.shilapi.xcertplay.airplay.SafeAreaRect
@@ -25,10 +24,20 @@ class CarPlayExperienceSettingsTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private fun views(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
-    private fun row(activity: DiPlayActivity, title: String) = views(activity.window.decorView)
-        .filterIsInstance<ServerUi.PreferenceRow>().single { it.contentDescription.toString().startsWith("$title，") }
+    private fun row(activity: DiPlayActivity, title: String): ServerUi.PreferenceRow {
+        fun current() = views(activity.window.decorView).filterIsInstance<ServerUi.PreferenceRow>()
+            .singleOrNull { it.contentDescription.toString().startsWith("$title，") }
+        current()?.let { return it }
+        val category = when (title) {
+            "音频输出", "麦克风来源" -> "音频与麦克风"
+            "浏览器离线后的处理" -> "浏览器设备"
+            else -> "画面与串流"
+        }
+        SettingsNavigation.open(activity, category)
+        return current()!!
+    }
     private fun openSettings(activity: DiPlayActivity) {
-        views(activity.window.decorView).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
+        SettingsNavigation.open(activity, "画面与串流")
     }
     private fun choose(activity: DiPlayActivity, title: String, index: Int, save: Boolean = true) {
         row(activity, title).performClick()
