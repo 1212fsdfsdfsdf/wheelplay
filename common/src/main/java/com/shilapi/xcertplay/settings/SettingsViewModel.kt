@@ -133,6 +133,7 @@ internal class SettingsViewModel(
             httpPort = WebListenSettings.httpPort(app),
             httpsPort = WebListenSettings.httpsPort(app),
             hostname = WebListenSettings.hostname(app),
+            mdnsHostname = WebListenSettings.mdnsHostname(app),
             certificateType = WebListenSettings.certificateType(app),
             customCertificate = LanTls.hasCustom(app),
             navigationAvailable = BydOutputSettings.available(app),
@@ -304,6 +305,15 @@ internal class SettingsViewModel(
                     SettingsEffect.WebUpdate(app.getString(R.string.settings_hostname_saved)) {
                         WebSession.setHostname(app, value.trim().lowercase(Locale.ROOT))
                     }
+                TextSetting.MDNS_HOSTNAME -> {
+                    val name = value.trim().lowercase(Locale.ROOT)
+                    require(WebListenSettings.validMdnsHostname(name)) {
+                        app.getString(R.string.settings_mdns_invalid)
+                    }
+                    SettingsEffect.WebUpdate(app.getString(R.string.settings_mdns_saved)) {
+                        WebSession.setMdnsHostname(app, name)
+                    }
+                }
                 TextSetting.TESLA_ADDRESS -> {
                     val config = TeslaHttpCompatibility.config(app)
                     TeslaHttpCompatibility.save(

@@ -14,6 +14,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 class WebListenSettingsTest {
+    @Test fun mdnsNameDefaultsAndAcceptsOnlySingleLocalLabel() {
+        val context = RuntimeEnvironment.getApplication()
+        assertEquals("wheelplay.local", WebListenSettings.mdnsHostname(context))
+        for (name in listOf("car.local", "my-wheelplay.local")) {
+            WebListenSettings.saveMdnsHostname(context, name)
+            assertEquals(name, WebListenSettings.mdnsHostname(context))
+        }
+        for (name in listOf("", "car.example.com", "foo.bar.local", "-car.local", "car-.local", "car_name.local")) {
+            assertTrue(runCatching { WebListenSettings.saveMdnsHostname(context, name) }.isFailure)
+        }
+    }
     @Before fun startWithoutRootAuthorization() {
         val original = RootAccess.authorize
         try {

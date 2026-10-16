@@ -33,6 +33,14 @@ internal fun WebSettingsScreen(state: SettingsState, actions: SettingsActions) {
             enabled,
             displayValue = state.hostname.ifEmpty { settingsString(R.string.settings_use_ip) },
         )
+        SettingsTextPreference(
+            actions,
+            TextSetting.MDNS_HOSTNAME,
+            R.string.settings_mdns_hostname,
+            state.mdnsHostname,
+            enabled,
+        )
+        SettingsDescription(R.string.settings_mdns_description)
         SettingsDescription(R.string.settings_web_description)
         SettingsToggle(
             state,

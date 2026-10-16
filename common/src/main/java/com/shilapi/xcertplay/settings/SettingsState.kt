@@ -58,6 +58,7 @@ internal enum class TextSetting {
     HTTP_PORT,
     HTTPS_PORT,
     HOSTNAME,
+    MDNS_HOSTNAME,
     TESLA_ADDRESS,
     HTTP_MAPPING,
     HTTPS_MAPPING,
@@ -99,6 +100,7 @@ internal data class SettingsState(
     val httpPort: Int = 8080,
     val httpsPort: Int = 8443,
     val hostname: String = "",
+    val mdnsHostname: String = WebListenSettings.DEFAULT_MDNS_HOSTNAME,
     val certificateType: WebListenSettings.CertificateType =
         WebListenSettings.CertificateType.DEFAULT,
     val customCertificate: Boolean = false,

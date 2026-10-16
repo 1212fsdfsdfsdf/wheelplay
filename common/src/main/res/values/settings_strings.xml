@@ -115,6 +115,10 @@
     <string name="settings_http_port">HTTP 端口</string>
     <string name="settings_https_port">Web HTTPS 端口</string>
     <string name="settings_hostname">Web 域名（可选）</string>
+    <string name="settings_mdns_hostname">局域网 mDNS 域名</string>
+    <string name="settings_mdns_description">默认使用 wheelplay.local。在同一局域网内访问 HTTP 监听端口；车机网络需允许组播。</string>
+    <string name="settings_mdns_invalid">请输入单级 .local 域名，例如 wheelplay.local</string>
+    <string name="settings_mdns_saved">mDNS 域名已保存</string>
     <string name="settings_use_ip">使用 IP 地址</string>
     <string name="settings_web_description">监听设置无需 Root。Web 域名同时用于 HTTP 和 HTTPS，需解析到实际访问的 IP；填写不会自动配置 DNS，自定义 HTTPS 证书需覆盖此域名。</string>
     <string name="settings_https">启用 HTTPS</string>

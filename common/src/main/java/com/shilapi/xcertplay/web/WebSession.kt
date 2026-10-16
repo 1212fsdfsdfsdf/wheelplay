@@ -27,6 +27,7 @@ internal object WebSession {
     @Volatile var error: String? = null
         private set
     @Volatile private var server: LanWebServer? = null
+    private var mdns: WebMdns? = null
     @Volatile var httpPort = WebListenSettings.DEFAULT_HTTP_PORT
         private set
     @Volatile var httpsPort = WebListenSettings.DEFAULT_HTTPS_PORT
@@ -170,6 +171,7 @@ internal object WebSession {
         val next = LanWebServer(context.applicationContext, code, port)
         try {
             next.start(5000, true); server = next; httpPort = port; error = null
+            mdns = WebMdns(context.applicationContext)
             experienceContext = context.applicationContext
             offlineSubscription = CarPlayBackgroundSession.subscribe { viewerStateChanged() }
             httpsPort = WebListenSettings.httpsPort(context)
@@ -264,6 +266,13 @@ internal object WebSession {
         refreshGeneratedCertificate(context)
         null
     }.getOrElse { it.message ?: "Web 域名保存失败" }
+
+    @Synchronized fun setMdnsHostname(context: Context, hostname: String): String? = runCatching {
+        WebListenSettings.saveMdnsHostname(context, hostname)
+        mdns?.close()
+        mdns = if (server != null) WebMdns(context.applicationContext) else null
+        null
+    }.getOrElse { it.message ?: "mDNS 域名保存失败" }
 
     fun restoreDefaultCertificate(context: Context): String? = runCatching {
         val config = TeslaHttpCompatibility.config(context)
@@ -394,6 +403,7 @@ internal object WebSession {
         generation++; frame = null; videoActive = false
     } }
     @Synchronized fun stop() {
+        mdns?.close(); mdns = null
         experienceContext = null
         offlineSubscription?.close(); offlineSubscription = null
         if (Looper.myLooper() == Looper.getMainLooper()) offlineMonitor.close()
