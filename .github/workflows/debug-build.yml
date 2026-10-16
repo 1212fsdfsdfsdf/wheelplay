@@ -26,6 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
@@ -56,7 +61,7 @@ jobs:
           key: android-toolchain-v1-ubuntu24-${{ runner.arch }}-api${{ env.ANDROID_API_LEVEL }}-bt${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}
 
       - name: Verify SDK installation helper
-        run: node --test --test-isolation=none test/ci-android-toolchain.test.js
+        run: node --test test/ci-android-toolchain.test.js
 
       - name: Install missing Android packages
         run: |
