@@ -6,9 +6,12 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.TextView
+import androidx.compose.ui.test.*
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.web.WebSession
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -19,24 +22,27 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
-import java.io.File
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
-class AuthenticationActivationTest {
-    private val app get() = RuntimeEnvironment.getApplication()
+@org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+class AuthenticationActivationTest : ComposeSettingsTest() {
+    private val app
+        get() = RuntimeEnvironment.getApplication()
 
-    @After fun cleanup() {
+    @After
+    fun cleanup() {
         WebSession.stop()
         CarPlayBackgroundSession.clear()
     }
 
-    private fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
-        (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
+    private fun views(view: View): List<View> =
+        listOf(view) +
+            if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
+            else emptyList()
 
-    @Test fun missingResourcesGuideToSettingsWithoutStartingWebOrCarPlay() {
+    @Test
+    fun missingResourcesGuideToSettingsWithoutStartingWebOrCarPlay() {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         val ui = views(activity.window.decorView)
@@ -44,7 +50,7 @@ class AuthenticationActivationTest {
         assertNull(shadowOf(activity).nextStartedService)
         assertFalse(WebSession.running)
         assertFalse(CarPlayBackgroundSession.hasSession())
-        assertTrue(ui.filterIsInstance<TextView>().any { it.text.toString().contains("激活 Web 服务") })
+        compose.onNodeWithText("从 DiPlay APK 导入").assertExists()
         assertFalse(ui.filterIsInstance<Button>().single { it.text == "连接 iPhone" }.isEnabled)
         WebSession.start(app)
         assertFalse(WebSession.running)
@@ -53,7 +59,8 @@ class AuthenticationActivationTest {
         controller.pause().stop().destroy()
     }
 
-    @Test fun directServiceStartAndRestartCannotActivateWithoutResources() {
+    @Test
+    fun directServiceStartAndRestartCannotActivateWithoutResources() {
         val controller = Robolectric.buildService(DiPlaySessionService::class.java).create()
         val service = controller.get()
         assertEquals(Service.START_NOT_STICKY, service.onStartCommand(null, 0, 1))
@@ -65,9 +72,14 @@ class AuthenticationActivationTest {
         controller.destroy()
     }
 
-    @Test fun usbLaunchWithoutResourcesRedirectsToSettingsAndClosesHost() {
-        val controller = Robolectric.buildActivity(CarPlayHostActivity::class.java,
-            Intent("android.hardware.usb.action.USB_DEVICE_ATTACHED")).setup()
+    @Test
+    fun usbLaunchWithoutResourcesRedirectsToSettingsAndClosesHost() {
+        val controller =
+            Robolectric.buildActivity(
+                    CarPlayHostActivity::class.java,
+                    Intent("android.hardware.usb.action.USB_DEVICE_ATTACHED"),
+                )
+                .setup()
         val host = controller.get()
         assertTrue(host.isFinishing)
         val destination = shadowOf(host).nextStartedActivity
@@ -79,7 +91,8 @@ class AuthenticationActivationTest {
         controller.pause().stop().destroy()
     }
 
-    @Test fun invalidPairCannotActivateWeb() {
+    @Test
+    fun invalidPairCannotActivateWeb() {
         val directory = File(app.noBackupFilesDir, "offline-mfi").apply { mkdirs() }
         val key = SyntheticMfiIdentity.create()
         val other = SyntheticMfiIdentity.create()
@@ -93,31 +106,46 @@ class AuthenticationActivationTest {
         controller.destroy()
     }
 
-    @Test fun bundledResourcesActivateImmediatelyAndUserReplacementStaysPreferred() {
+    @Test
+    fun bundledResourcesActivateImmediatelyAndUserReplacementStaysPreferred() {
         // A temporary synthetic APK exercises the real AssetManager path without shipping keys.
         val bundled = SyntheticMfiIdentity.create()
         val apk = File(app.cacheDir, "synthetic-auth-assets.apk")
         ZipOutputStream(apk.outputStream()).use { zip ->
-            for ((name, bytes) in mapOf("identity.pk8" to bundled.key, "certificate.p7b" to bundled.certificate)) {
-                zip.putNextEntry(ZipEntry("assets/offline-mfi/$name")); zip.write(bytes); zip.closeEntry()
+            for ((name, bytes) in
+                mapOf("identity.pk8" to bundled.key, "certificate.p7b" to bundled.certificate)) {
+                zip.putNextEntry(ZipEntry("assets/offline-mfi/$name"))
+                zip.write(bytes)
+                zip.closeEntry()
             }
         }
-        val cookie = ReflectionHelpers.callInstanceMethod<Int>(app.assets, "addAssetPath",
-            ReflectionHelpers.ClassParameter.from(String::class.java, apk.absolutePath))
+        val cookie =
+            ReflectionHelpers.callInstanceMethod<Int>(
+                app.assets,
+                "addAssetPath",
+                ReflectionHelpers.ClassParameter.from(String::class.java, apk.absolutePath),
+            )
         assertTrue(cookie > 0)
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         assertNotNull(shadowOf(activity.get()).nextStartedService)
-        assertArrayEquals(bundled.certificate, MfiAssetStore(app.noBackupFilesDir).load().readCertificate())
+        assertArrayEquals(
+            bundled.certificate,
+            MfiAssetStore(app.noBackupFilesDir).load().readCertificate(),
+        )
         val service = Robolectric.buildService(DiPlaySessionService::class.java).create()
         service.get().onStartCommand(Intent(app, DiPlaySessionService::class.java), 0, 1)
         assertTrue(WebSession.running)
         val custom = SyntheticMfiIdentity.create()
-        MfiAssetStore(app.noBackupFilesDir).installFiles({ custom.key.inputStream() }, { custom.certificate.inputStream() })
+        MfiAssetStore(app.noBackupFilesDir)
+            .installFiles({ custom.key.inputStream() }, { custom.certificate.inputStream() })
         WebSession.stop()
         DiPlayBootstrap.ensure(app)
         service.get().onStartCommand(null, 0, 2)
         assertTrue(WebSession.running)
-        assertArrayEquals(custom.certificate, MfiAssetStore(app.noBackupFilesDir).load().readCertificate())
+        assertArrayEquals(
+            custom.certificate,
+            MfiAssetStore(app.noBackupFilesDir).load().readCertificate(),
+        )
         service.destroy()
         activity.pause().stop().destroy()
     }

@@ -257,9 +257,9 @@ internal class ServerUi(private val context: Context) {
             tabs.setOnItemSelectedListener { item -> select(ids[item.itemId - 1]); true }
 
         }
-        fun put(id: String, view: View) {
+        fun put(id: String, view: View, scrollPosition: Int? = null) {
             val old = pages.put(id, view)
-            val scrollY = old?.scrollY ?: 0
+            val scrollY = scrollPosition ?: old?.scrollY ?: 0
             if (old != null) container.removeView(old)
             container.addView(view, FrameLayout.LayoutParams(-1, -1))
             view.visibility = if (id == selected) View.VISIBLE else View.GONE
@@ -275,7 +275,12 @@ internal class ServerUi(private val context: Context) {
             view.setPadding(view.paddingLeft, topInset, view.paddingRight, view.paddingBottom)
         }
         private fun updateStatusScrim() {
-            statusScrim.alpha = ((pages[selected]?.scrollY ?: 0).toFloat() / dp(24)).coerceIn(0f, 1f)
+            statusScrim.alpha = ((pageScroll[selected] ?: pages[selected]?.scrollY ?: 0).toFloat() / dp(24)).coerceIn(0f, 1f)
+        }
+        private val pageScroll = mutableMapOf<String, Int>()
+        fun setPageScroll(id: String, offset: Int) {
+            pageScroll[id] = offset
+            if (selected == id) updateStatusScrim()
         }
         fun select(id: String) {
             if (id !in ids || selected == id) return
