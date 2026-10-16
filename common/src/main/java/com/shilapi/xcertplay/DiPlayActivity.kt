@@ -1116,7 +1116,11 @@ class DiPlayActivity : AppCompatActivity() {
     private fun applyWirelessLink(mode: WirelessHotspotMode) {
         AirPlayPersistence.saveWirelessHotspotMode(this, mode)
         render()
-        if (CarPlayBackgroundSession.hasSession()) connect(true)
+        if (CarPlayBackgroundSession.hasSession()) {
+            // Release the previous backend before checking whether the new hotspot is on.
+            // Otherwise its P2P group can prevent the user from enabling the system hotspot.
+            CarPlayBackgroundSession.stop { runOnUiThread { connect(true) } }
+        }
     }
 
     private fun showBrowserDevices() {
