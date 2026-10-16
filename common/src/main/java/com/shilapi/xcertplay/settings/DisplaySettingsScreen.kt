@@ -30,7 +30,7 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
         actions,
         ChoiceSetting.APPEARANCE,
         R.string.settings_appearance,
-        CarPlayAppearance.entries.map { it.label },
+        CarPlayAppearance.entries.map { settingsString(it.labelRes) },
     )
     SettingsDescription(R.string.settings_appearance_description)
     SettingsChoice(
@@ -38,7 +38,7 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
         actions,
         ChoiceSetting.DISPLAY_SIZE,
         R.string.settings_display_size,
-        CarPlaySize.entries.map { it.label },
+        CarPlaySize.entries.map { settingsString(it.labelRes) },
     )
     SettingsDescription(R.string.settings_display_size_description)
     val margins = state.margins
@@ -89,7 +89,7 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
         actions,
         ChoiceSetting.STREAM,
         R.string.settings_stream,
-        StreamTechnology.entries.map { it.label },
+        StreamTechnology.entries.map { settingsString(it.labelRes) },
     )
     SettingsDescription(R.string.settings_stream_description)
     SettingsChoice(
@@ -97,7 +97,7 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
         actions,
         ChoiceSetting.RECOVERY,
         R.string.settings_recovery,
-        RtcRecoveryPolicy.entries.map { it.label },
+        RtcRecoveryPolicy.entries.map { settingsString(it.labelRes) },
     )
     SettingsDescription(R.string.settings_recovery_description)
     SettingsToggle(

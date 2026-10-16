@@ -1,3 +1,4 @@
+import { t } from './text.js';
 // Coordinates are normalized in the visible video rectangle, excluding letterboxing.
 export function mapPoint(clientX, clientY, rect, width, height, clamp = false) {
   if (width <= 0 || height <= 0 || rect.width <= 0 || rect.height <= 0) return null;
@@ -373,26 +374,26 @@ if (typeof document !== 'undefined') {
       if (typeof device.id === 'string' && typeof device.secret === 'string' && device.id.length === 32 && device.secret.length === 32) deviceCredential = device;
     }
   } catch (_) {}
-  function showPairingReady(name = '浏览器已配对') {
+  function showPairingReady(name = t("web_browser_paired")) {
     $('remembered-device').hidden = false;
     $('device-name').textContent = name;
     $('qr-pairing').hidden = true; $('pair-instructions').hidden = true;
     $('code-entry').hidden = true; $('code').required = false; $('code').disabled = true;
-    $('connect-label').textContent = '启动显示';
+    $('connect-label').textContent = t("web_start_display");
     $('connect').disabled = false;
-    $('status').textContent = '已配对 · 等待启动'; $('message').textContent = '';
+    $('status').textContent = t("web_paired_ready_to_start"); $('message').textContent = '';
   }
   function showPairingEntry() {
     $('remembered-device').hidden = true;
     $('qr-pairing').hidden = false; $('pair-instructions').hidden = false;
     $('code-entry').hidden = false; $('code').required = true; $('code').disabled = false;
-    $('connect-label').textContent = '配对并启动显示';
+    $('connect-label').textContent = t("web_pair_start_display");
     $('connect').disabled = false;
   }
   async function preparePairing(token, generation) {
     pairingToken = token;
-    let name = '浏览器已配对';
-    let message = '已配对。选择上方选项后，点击「启动显示」。';
+    let name = t("web_browser_paired");
+    let message = t("web_paired_choose_the_options_above_then_tap_start_display");
     if (storageAvailable) {
       try {
         const device = await pairApi('remember', { token });
@@ -401,9 +402,9 @@ if (typeof document !== 'undefined') {
         window.localStorage.setItem(devicePreference, JSON.stringify(device));
         name = device.name;
       } catch (_) {
-        message = '本次配对成功，但未能记住设备。下次可能需要重新配对；可检查浏览器存储或 App 中的设备数量。';
+        message = t("web_paired_for_this_session_but_the_device_could_not");
       }
-    } else message = '本次配对成功。浏览器无法保存设备，下次仍需配对。';
+    } else message = t("web_paired_for_this_session_this_browser_cannot_remember_the");
     if (generation !== authGeneration) return;
     showPairingReady(name); $('device-status').textContent = message;
   }
@@ -412,24 +413,24 @@ if (typeof document !== 'undefined') {
     stopQr(); pairingToken = null;
     showPairingEntry(); $('connect').disabled = true;
     if (deviceCredential) {
-      $('status').textContent = '正在恢复配对…';
+      $('status').textContent = t("web_restoring_pairing");
       try {
         const result = await pairApi('resume', { device: deviceCredential });
         if (generation !== authGeneration) return;
         pairingToken = result.token;
         showPairingReady(result.name);
-        $('device-status').textContent = '已自动恢复配对。选择上方选项后，点击「启动显示」。';
+        $('device-status').textContent = t("web_pairing_restored_automatically_choose_the_options_above_then_tap");
         return;
       } catch (error) {
         if (generation !== authGeneration) return;
         if (error.status === 401) {
           deviceCredential = null;
           try { window.localStorage.removeItem(devicePreference); } catch (_) {}
-          $('message').textContent = '设备记忆已失效或已被移除，请重新配对。';
+          $('message').textContent = t("web_remembered_device_expired_or_removed_pair_again");
         } else {
-          showPairingReady(deviceCredential.name || '已记住的浏览器');
-          $('status').textContent = '等待恢复配对';
-          $('device-status').textContent = '暂时无法恢复配对，请检查服务和网络后点击「启动显示」重试。';
+          showPairingReady(deviceCredential.name || t("web_remembered_browser"));
+          $('status').textContent = t("web_waiting_to_restore_pairing");
+          $('device-status').textContent = t("web_could_not_restore_pairing_yet_check_the_service_and");
           return;
         }
       }
@@ -442,11 +443,11 @@ if (typeof document !== 'undefined') {
         await preparePairing(result.token, generation); return;
       } catch (_) {
         if (generation !== authGeneration) return;
-        $('message').textContent = '访问链接中的配对码已失效，请重新扫码或输入当前配对码。';
+        $('message').textContent = t("web_the_pairing_code_in_this_link_has_expired_scan");
       }
     }
     if (generation !== authGeneration) return;
-    showPairingEntry(); $('status').textContent = '等待配对'; startQr();
+    showPairingEntry(); $('status').textContent = t("web_waiting_to_pair"); startQr();
   }
   function stopQr(cancel = true) {
     qrGeneration++; clearTimeout(qrTimer);
@@ -457,7 +458,7 @@ if (typeof document !== 'undefined') {
   }
   async function startQr() {
     stopQr(); const generation = qrGeneration;
-    $('qr-status').textContent = '正在生成二维码…';
+    $('qr-status').textContent = t("web_generating_qr_code");
     $('refresh-qr').disabled = true;
     try {
       const request = await pairApi('request');
@@ -469,10 +470,10 @@ if (typeof document !== 'undefined') {
       $('pair-qr').onerror = () => {
         if (generation !== qrGeneration) return;
         $('pair-qr').hidden = true;
-        $('qr-status').textContent = '二维码加载失败，请刷新重试或手动输入配对码。';
+        $('qr-status').textContent = t("web_could_not_load_qr_code_refresh_and_try_again");
       };
       $('pair-qr').src = `/pair/qr?id=${encodeURIComponent(request.id)}&secret=${encodeURIComponent(request.secret)}`;
-      $('qr-status').textContent = '请用服务端 App 扫码并允许连接。二维码两分钟内有效。';
+      $('qr-status').textContent = t("web_scan_with_the_server_app_and_allow_the_connection");
       const expiresAt = Date.now() + request.expiresIn * 1000;
       const poll = async () => {
         try {
@@ -488,12 +489,12 @@ if (typeof document !== 'undefined') {
         } catch (error) {
           if (generation !== qrGeneration) return;
           stopQr();
-          $('qr-status').textContent = error.message === 'expired' ? '二维码已过期，请刷新后重新扫描。' : '暂时无法获取配对状态，请刷新二维码或输入配对码。';
+          $('qr-status').textContent = error.message === 'expired' ? t("web_qr_code_expired_refresh_and_scan_again") : t("web_could_not_check_pairing_status_refresh_the_qr_code");
         }
       };
       qrTimer = setTimeout(poll, 1000);
     } catch (_) {
-      if (generation === qrGeneration) $('qr-status').textContent = '二维码暂不可用，请刷新重试或手动输入配对码。';
+      if (generation === qrGeneration) $('qr-status').textContent = t("web_qr_code_unavailable_refresh_and_try_again_or_enter");
     } finally {
       if (generation === qrGeneration) $('refresh-qr').disabled = false;
     }
@@ -525,10 +526,10 @@ if (typeof document !== 'undefined') {
         endpoint.search = ''; endpoint.hash = '';
         $('https-entry').href = endpoint.href;
       }
-      $('tls-fingerprint').textContent = info.enabled === false ? 'HTTPS 已关闭，请在 App 的 Web 监听中开启。'
-        : info.fingerprint || 'HTTPS 正在准备，请稍后重新展开。';
+      $('tls-fingerprint').textContent = info.enabled === false ? t("web_https_is_disabled_enable_it_in_the_app_s")
+        : info.fingerprint || t("web_preparing_https_close_and_reopen_this_section_shortly");
       $('tls-error').textContent = info.error || '';
-    } catch (_) { $('tls-error').textContent = '证书信息暂时无法读取'; }
+    } catch (_) { $('tls-error').textContent = t("web_certificate_information_is_temporarily_unavailable"); }
   });
   function scheduleViewportReport() {
     clearTimeout(viewportReportTimer);
@@ -603,13 +604,13 @@ if (typeof document !== 'undefined') {
     browserAudio.close(); $('audio-message').hidden = true;
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     $('disconnect').hidden = true; $('connect').disabled = false;
-    $('status').textContent = '已断开';
+    $('status').textContent = t("web_disconnected");
     if (refreshQr) initializePairing();
   }
   function connect() {
     clearTimeout(retry);
     $('connect').disabled = true;
-    $('status').textContent = paired ? '正在重新连接…' : '正在连接…';
+    $('status').textContent = paired ? t("web_reconnecting") : t("web_connecting");
     const auth = pairingToken ? `token=${encodeURIComponent(pairingToken)}` : `code=${encodeURIComponent($('code').value)}`;
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}`);
     ws.binaryType = 'arraybuffer';
@@ -645,12 +646,12 @@ if (typeof document !== 'undefined') {
       });
       $('message').textContent = '';
       $('phone-connect').disabled = false;
-      $('phone-connect-message').textContent = '请保持 Android 上的 WheelPlay 在前台；点击连接 iPhone，按提示完成授权。';
+      $('phone-connect-message').textContent = t("web_keep_wheelplay_in_the_foreground_on_android_tap_connect");
       $('pairing').hidden = true; $('display').hidden = false; $('disconnect').hidden = false;
       $('topbar').hidden = $('hide-toolbar').checked || Boolean(launchPresentation?.immersive);
       lastViewportSignature = '';
       scheduleViewportReport();
-      $('status').textContent = '已连接 · 等待画面';
+      $('status').textContent = t("web_connected_waiting_for_video");
       send({ type: 'ping' });
       clearInterval(heartbeat);
       heartbeat = setInterval(() => {
@@ -680,7 +681,7 @@ if (typeof document !== 'undefined') {
           performanceStats.source = data.performance?.source ?? null;
           performanceStats.transport = data.performance?.transport ?? null;
           lastStatus = Date.now(); width = data.width; height = data.height;
-          $('stage').textContent = data.stage || '等待 iPhone 画面…';
+          $('stage').textContent = data.stage || t("web_waiting_for_iphone_video");
           rtc.progress(data.rtcFrames || 0);
           if (data.rtcAvailable && !rtcRequested && typeof RTCPeerConnection !== 'undefined') {
             rtcRequested = true; send({ type: 'rtc-start' });
@@ -688,10 +689,10 @@ if (typeof document !== 'undefined') {
           // The server resets availability when the iPhone starts a new video configuration.
           if (!data.rtcAvailable) rtcRequested = false;
           setLive(Boolean(data.streaming && (rtc.active || lastFrame && screen.naturalWidth)));
-          const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : `JPEG${data.fallback ? ' · 已回退' : ''}`;
-          $('status').textContent = live ? `${transport}${rtc.recovering ? ' · 等待恢复' : ''} · 触控已连接` : '已连接 · 等待 iPhone 画面';
+          const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : `JPEG${data.fallback ? t("web_fallback") : ''}`;
+          $('status').textContent = live ? t("web_transport_touch_connected", transport, rtc.recovering ? t("web_waiting_for_recovery") : '') : t("web_connected_waiting_for_iphone_video");
         }
-        if (data.type === 'input-unavailable') $('status').textContent = '等待 iPhone 触控通道就绪';
+        if (data.type === 'input-unavailable') $('status').textContent = t("web_waiting_for_iphone_touch_input");
         return;
       }
       if (browserAudio.receive(event.data)) return;
@@ -703,7 +704,7 @@ if (typeof document !== 'undefined') {
         if (rtc && rtc.active) { send({ type: 'ack' }); return; }
         screen.hidden = false;
         lastFrame = Date.now(); width = screen.naturalWidth; height = screen.naturalHeight;
-        if (!rtc || !rtc.active) { setLive(true); $('status').textContent = 'JPEG · 触控已连接'; }
+        if (!rtc || !rtc.active) { setLive(true); $('status').textContent = t("web_jpeg_touch_connected"); }
         send({ type: 'ack' });
       };
       screen.onerror = () => { screen.hidden = true; ws.close(); };
@@ -718,12 +719,12 @@ if (typeof document !== 'undefined') {
       browserAudio.close(); $('audio-message').hidden = true;
       if (stopped) return;
       if (!paired || ++attempts > 8) {
-        disconnect(); $('status').textContent = '连接未成功';
-        $('message').textContent = '请检查服务端是否运行、配对码是否正确。连续输错后请等待 30 秒再试。';
+        disconnect(); $('status').textContent = t("web_could_not_connect");
+        $('message').textContent = t("web_check_that_the_server_is_running_and_the_pairing");
         return;
       }
-      $('status').textContent = '连接中断 · 正在重试';
-      $('stage').textContent = '检查服务端与车机是否仍在同一局域网。';
+      $('status').textContent = t("web_connection_interrupted_retrying");
+      $('stage').textContent = t("web_check_that_the_server_and_head_unit_are_still");
       const generation = authGeneration;
       retry = setTimeout(async () => {
         if (deviceCredential) {
@@ -769,29 +770,29 @@ if (typeof document !== 'undefined') {
           try { window.localStorage.removeItem(devicePreference); } catch (_) {}
           showPairingEntry(); startQr();
         }
-        $('status').textContent = '配对未成功';
-        $('message').textContent = '请检查服务和网络，或重新扫码 / 输入当前配对码。连续输错后请等待 30 秒再试。';
+        $('status').textContent = t("web_could_not_pair");
+        $('message').textContent = t("web_check_the_service_and_network_or_scan_again_enter");
       }
     })();
   });
   $('phone-connect').addEventListener('click', () => {
     if (!paired || !send({ type: 'phone-connect' })) {
-      $('phone-connect-message').textContent = '浏览器连接已中断，请重新配对后再试。';
+      $('phone-connect-message').textContent = t("web_browser_connection_interrupted_pair_again_and_retry");
       return;
     }
     $('phone-connect').disabled = true;
-    $('phone-connect-message').textContent = '正在请求连接 iPhone…';
+    $('phone-connect-message').textContent = t("web_requesting_iphone_connection");
   });
   $('disconnect').addEventListener('click', () => disconnect());
   $('fullscreen').addEventListener('click', async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
-      else $('status').textContent = '此浏览器不支持全屏';
-    } catch (_) { $('status').textContent = '请通过浏览器菜单切换全屏'; }
+      else $('status').textContent = t("web_this_browser_does_not_support_full_screen");
+    } catch (_) { $('status').textContent = t("web_use_the_browser_menu_to_toggle_full_screen"); }
   });
   document.addEventListener('fullscreenchange', () => {
-    $('fullscreen').textContent = document.fullscreenElement ? '退出全屏' : '全屏';
+    $('fullscreen').textContent = document.fullscreenElement ? t("web_exit_full_screen") : t("web_full_screen");
     if (!document.fullscreenElement && launchPresentation?.immersive) {
       launchPresentation.immersive = false;
       launchPresentation.ownsFullscreen = false;

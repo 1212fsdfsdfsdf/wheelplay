@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { resourceStrings } from '../scripts/resource-strings.mjs';
+const messages = resourceStrings('values-zh-rCN');
 
-const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
-  .replaceAll('export function', 'function') + '\n' +
+const source = readFileSync(new URL('../common/src/main/assets/web/text.js', import.meta.url), 'utf8').replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function') + '\n' + readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
+  .replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function') + '\n' +
   readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
-    .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
+    .replace(/^import .*browser-audio\.js';$/m, '').replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const savedDevice = { id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Chrome · Android' };
 const ok = data => ({ ok: true, json: async () => data });
@@ -46,6 +48,7 @@ function fixture({ status = () => ok({ state: 'pending' }), stored = null, resum
       return ok({ id: 'request', secret: 'poll-secret', expiresIn: 120 });
     },
   };
+  context.wheelplayMessages = messages;
   vm.runInNewContext(source, context);
   return { element, sockets, requests, preferences, windowEvents,
     submit: () => element('connect-form').handlers.submit({ preventDefault() {} }),

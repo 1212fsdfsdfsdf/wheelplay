@@ -25,7 +25,7 @@ internal fun AudioSettingsScreen(state: SettingsState, actions: SettingsActions)
         actions,
         ChoiceSetting.AUDIO_OUTPUT,
         R.string.settings_audio_output,
-        CarPlayAudioOutput.entries.map { it.label },
+        CarPlayAudioOutput.entries.map { settingsString(it.labelRes) },
     )
     Text(state.runtime.audioStatus, style = MaterialTheme.typography.bodyMedium)
     SettingsDescription(R.string.settings_audio_output_description)
@@ -34,7 +34,7 @@ internal fun AudioSettingsScreen(state: SettingsState, actions: SettingsActions)
         actions,
         ChoiceSetting.MICROPHONE,
         R.string.settings_microphone,
-        CarPlayMicrophoneSource.entries.map { it.label },
+        CarPlayMicrophoneSource.entries.map { settingsString(it.labelRes) },
     )
     Text(state.runtime.microphoneStatus, style = MaterialTheme.typography.bodyMedium)
     SettingsDescription(R.string.settings_microphone_description)

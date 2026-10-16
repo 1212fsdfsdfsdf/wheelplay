@@ -78,7 +78,7 @@ internal fun WebSettingsScreen(state: SettingsState, actions: SettingsActions) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     RadioButton(state.certificateType == type, onClick = null, enabled = enabled)
-                    Text(type.label, Modifier.padding(start = 12.dp))
+                    Text(settingsString(type.labelRes), Modifier.padding(start = 12.dp))
                 }
             }
             when (state.certificateType) {

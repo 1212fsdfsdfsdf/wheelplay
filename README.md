@@ -65,6 +65,8 @@ Settings → Web service (Web 服务) contains the HTTP port (default `8080`), a
 
 Android settings use Jetpack Compose. Category screens and shared controls live in `common/src/main/java/com/shilapi/xcertplay/settings/`; `SettingsViewModel` owns preferences and saved navigation state, while `DiPlayActivity` coordinates platform permissions, file pickers, and service changes. `SettingsScreen.kt` includes phone and large-text previews. Settings interaction tests use Compose semantics with Robolectric.
 
+User-visible text uses Android string resources: English in `values`, Simplified Chinese in `values-zh-rCN`, and Traditional Chinese in `values-zh-rTW`. Android selects resources from the system locale; there is no in-app language selector. Use `stringResource` / `getString` and positional format arguments for new copy. `BrowserStrings` supplies the same selected resources to the browser display; protocol identifiers and diagnostic logs remain stable. Translation completeness and format arguments are checked by `npm test`.
+
 Use Android NDK 28.2.13676358 and CMake 3.22.1. The first build fetches pinned versions of libdatachannel and Mbed TLS from GitHub; subsequent builds reuse the local CMake cache. Run:
 
 ```sh

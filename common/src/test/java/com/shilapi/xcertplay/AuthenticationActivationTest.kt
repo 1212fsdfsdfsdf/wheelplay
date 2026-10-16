@@ -24,7 +24,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [29], qualifiers = "zh-rCN-mdpi")
 @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
 class AuthenticationActivationTest : ComposeSettingsTest() {
     private val app

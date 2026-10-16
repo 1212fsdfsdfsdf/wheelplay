@@ -18,7 +18,7 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.HttpsURLConnection
 
 @RunWith(org.robolectric.RobolectricTestRunner::class)
-@org.robolectric.annotation.Config(sdk = [29])
+@org.robolectric.annotation.Config(qualifiers = "zh-rCN", sdk = [29])
 class LanWebServerTest {
     @org.junit.Before fun provisionAuthentication() {
         val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
