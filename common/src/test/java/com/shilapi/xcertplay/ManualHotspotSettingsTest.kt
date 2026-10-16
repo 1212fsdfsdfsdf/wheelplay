@@ -10,6 +10,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowDialog
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], qualifiers = "zh-rCN-mdpi")
@@ -44,6 +46,56 @@ class ManualHotspotSettingsTest : ComposeSettingsTest() {
     private fun credentials(ssid: String) {
         compose.onNodeWithText("热点名称").performTextReplacement(ssid)
         compose.onNodeWithText("热点密码").performTextReplacement(password)
+    }
+
+    @Test
+    fun switchingToDeviceHotspotStopsThePreviousSessionBeforeCheckingHotspotState() {
+        val identity = SyntheticMfiIdentity.create()
+        MfiAssetStore(context.noBackupFilesDir)
+            .installFiles({ identity.key.inputStream() }, { identity.certificate.inputStream() })
+        AirPlayPersistence.saveManualHotspotSsid(context, "CarPlay hotspot")
+        AirPlayPersistence.saveManualHotspotPassphrase(context, password)
+        var stopped = false
+        var completeStop: (() -> Unit)? = null
+        try {
+            withSettings {
+                ReflectionHelpers.setField(
+                    CarPlayBackgroundSession,
+                    "stopAction",
+                    { completion: () -> Unit ->
+                        stopped = true
+                        completeStop = completion
+                    },
+                )
+                selectManual()
+                assertTrue(
+                    "The old P2P session must release the radio before asking to enable the device hotspot",
+                    stopped,
+                )
+                assertTrue(CarPlayBackgroundSession.hasSession())
+                assertFalse(
+                    "The hotspot prompt must wait for the old session to stop",
+                    ShadowDialog.getShownDialogs().any {
+                        it is androidx.appcompat.app.AlertDialog && it.isShowing
+                    },
+                )
+                compose.runOnIdle {
+                    CarPlayBackgroundSession.clear()
+                    completeStop!!.invoke()
+                }
+                compose.waitForIdle()
+                assertFalse(CarPlayBackgroundSession.hasSession())
+                assertTrue(
+                    (ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog).isShowing
+                )
+                assertEquals(
+                    WirelessHotspotMode.MANUAL,
+                    AirPlayPersistence.loadWirelessHotspotMode(context),
+                )
+            }
+        } finally {
+            CarPlayBackgroundSession.clear()
+        }
     }
 
     @Test

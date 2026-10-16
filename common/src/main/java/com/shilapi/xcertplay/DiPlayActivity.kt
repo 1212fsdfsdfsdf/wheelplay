@@ -381,7 +381,14 @@ class DiPlayActivity : AppCompatActivity() {
     private fun applySettingsEffect(effect: SettingsEffect) {
         when (effect) {
             SettingsEffect.None -> Unit
-            is SettingsEffect.Reconnect -> if (CarPlayBackgroundSession.hasSession()) connect(effect.wireless ?: AirPlayPersistence.loadWirelessEnabled(this))
+            is SettingsEffect.Reconnect -> if (CarPlayBackgroundSession.hasSession()) {
+                val wireless = effect.wireless ?: AirPlayPersistence.loadWirelessEnabled(this)
+                if (effect.stopBeforeConnect) {
+                    // Release the old backend before checking the new hotspot: its P2P group
+                    // can prevent the user from enabling the system hotspot.
+                    CarPlayBackgroundSession.stop { runOnUiThread { connect(wireless) } }
+                } else connect(wireless)
+            }
             is SettingsEffect.WebUpdate -> configureWeb(effect.message, effect.operation)
             is SettingsEffect.TeslaEnabled -> setTeslaHttpEnabled(effect.enabled)
         }

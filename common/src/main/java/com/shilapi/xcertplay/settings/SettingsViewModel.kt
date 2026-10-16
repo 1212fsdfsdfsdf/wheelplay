@@ -19,7 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 internal sealed interface SettingsEffect {
     data object None : SettingsEffect
 
-    data class Reconnect(val wireless: Boolean? = null) : SettingsEffect
+    data class Reconnect(val wireless: Boolean? = null, val stopBeforeConnect: Boolean = false) :
+        SettingsEffect
 
     data class WebUpdate(val message: String, val operation: () -> String?) : SettingsEffect
 
@@ -202,7 +203,7 @@ internal class SettingsViewModel(
                         app,
                         if (index == 1) WirelessHotspotMode.MANUAL else WirelessHotspotMode.WIFI_P2P,
                     )
-                    SettingsEffect.Reconnect(wireless = true)
+                    SettingsEffect.Reconnect(wireless = true, stopBeforeConnect = true)
                 }
                 ChoiceSetting.TESLA_MODE -> {
                     TeslaHttpCompatibility.save(
