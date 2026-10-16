@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { resourceStrings } from '../scripts/resource-strings.mjs';
+const messages = resourceStrings('values-zh-rCN');
 
-const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
-  .replaceAll('export function', 'function') + '\n' +
+const source = readFileSync(new URL('../common/src/main/assets/web/text.js', import.meta.url), 'utf8').replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function') + '\n' + readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
+  .replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function') + '\n' +
   readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
-    .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
+    .replace(/^import .*browser-audio\.js';$/m, '').replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function');
 function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable = true,
   fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
@@ -75,6 +77,7 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
       return new Promise(() => {});
     },
   };
+  context.wheelplayMessages = messages;
   vm.runInNewContext(source, context);
   return { element, sockets, timers, peers, draws, preferences, raf, videoCallbacks, document, fullscreenCalls,
     async connect() {

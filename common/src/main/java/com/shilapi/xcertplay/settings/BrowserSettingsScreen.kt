@@ -29,7 +29,7 @@ internal fun BrowserSettingsScreen(state: SettingsState, actions: SettingsAction
         actions,
         ChoiceSetting.OFFLINE,
         R.string.settings_offline,
-        BrowserOfflinePolicy.entries.map { it.label },
+        BrowserOfflinePolicy.entries.map { settingsString(it.labelRes) },
     )
     SettingsDescription(R.string.settings_offline_description)
     if (manage) BrowserDevicesDialog(state, actions) { manage = false }

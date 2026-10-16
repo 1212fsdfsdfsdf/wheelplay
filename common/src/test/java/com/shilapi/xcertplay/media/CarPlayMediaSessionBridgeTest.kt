@@ -251,7 +251,7 @@ class CarPlayMediaSessionBridgeTest {
         val connection = shadowOf(service).lastForegroundNotification
         assertNull(connection.extras.getString(android.app.Notification.EXTRA_TEMPLATE))
         assertEquals(1, connection.actions.size)
-        assertEquals("停止服务", connection.actions.single().title.toString())
+        assertEquals("Stop service", connection.actions.single().title.toString())
         assertEquals(com.shilapi.xcertplay.DiPlaySessionService.ACTION_STOP,
             shadowOf(connection.actions.single().actionIntent).savedIntent.action)
         serviceController.destroy()

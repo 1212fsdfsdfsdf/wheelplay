@@ -344,7 +344,9 @@ internal class SettingsViewModel(
 
     /** Validate both fields before writing either, preserving SSID/password whitespace. */
     fun saveCredentials(ssid: String, password: String) {
-        ManualHotspotValidation.validate(ssid, password)?.let { error(it) }
+        ManualHotspotValidation.validate(ssid, password)?.let {
+            throw com.shilapi.xcertplay.i18n.UiException(it)
+        }
         AirPlayPersistence.saveManualHotspotSsid(app, ssid)
         AirPlayPersistence.saveManualHotspotPassphrase(app, password)
         AirPlayPersistence.saveManualHotspotSecurity(

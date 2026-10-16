@@ -16,7 +16,7 @@ internal fun TeslaSettingsScreen(state: SettingsState, actions: SettingsActions)
         actions,
         ChoiceSetting.TESLA_MODE,
         R.string.settings_connection_mode,
-        TeslaHttpMode.entries.map { it.label },
+        TeslaHttpMode.entries.map { settingsString(it.labelRes) },
         enabled,
     )
     SettingsDescription(R.string.settings_tesla_description)

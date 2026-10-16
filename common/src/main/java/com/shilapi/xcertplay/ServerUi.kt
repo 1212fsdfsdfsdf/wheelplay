@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.shared.R as UiR
+
 import android.content.Context
 import android.graphics.Color
 import android.view.View
@@ -129,7 +131,7 @@ internal class ServerUi(private val context: Context) {
         fun setExpanded(value: Boolean, animate: Boolean = false) {
             val changed = expanded != value
             expanded = value
-            androidx.core.view.ViewCompat.setStateDescription(this, if (value) "已展开" else "已折叠")
+            androidx.core.view.ViewCompat.setStateDescription(this, if (value) context.getString(UiR.string.ui_expanded) else context.getString(UiR.string.ui_collapsed))
             if (!changed && animate) return
             arrow.animate().cancel()
             val angle = if (value) 270f else 90f
@@ -235,7 +237,7 @@ internal class ServerUi(private val context: Context) {
                 updateStatusScrim()
             }
             val icons = listOf(R.drawable.ic_server_launch, R.drawable.ic_server_phone, R.drawable.ic_server_settings)
-            listOf("启动", "iPhone", "设置").forEachIndexed { index, title ->
+            listOf(context.getString(UiR.string.ui_start), "iPhone", context.getString(UiR.string.ui_settings)).forEachIndexed { index, title ->
                 tabs.menu.add(0, index + 1, index, title).setIcon(icons[index])
             }
             // CJK fallback metrics otherwise enlarge only Chinese labels, shifting their baseline.

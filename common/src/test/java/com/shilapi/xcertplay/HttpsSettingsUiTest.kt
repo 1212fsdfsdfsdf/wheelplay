@@ -156,7 +156,9 @@ class HttpsSettingsUiTest : ComposeSettingsTest() {
         try {
             openSettings(controller.get())
             requestRoot()
-            waitForUi { RootAccess.status.contains("未授权") }
+            waitForUi {
+                RootAccess.status.resolve(RuntimeEnvironment.getApplication()).contains("未授权")
+            }
             assertFalse(hasTag("text:HTTP_MAPPING"))
             assertFalse(hasTag("text:TESLA_ADDRESS"))
             SettingsNavigation.open(controller.get(), "Web 服务", compose)

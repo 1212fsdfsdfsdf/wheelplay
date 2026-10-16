@@ -1,3 +1,4 @@
+import { t } from './text.js';
 // Independent of video transport: the same paired channel works with JPEG and WebRTC.
 export function decodeAudioPacket(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 22) return null;
@@ -12,7 +13,7 @@ export function decodeAudioPacket(buffer) {
 // Continuous box-filter resampling preserves phase across render quanta and averages before
 // downsampling. CarPlay's negotiated mic rates are <= the browser's hardware capture rate.
 export function createMicResampler(inputRate, outputRate, channels, emit) {
-  if (inputRate < outputRate || channels < 1 || channels > 2) throw new Error('不支持此麦克风采样格式');
+  if (inputRate < outputRate || channels < 1 || channels > 2) throw new Error(t("web_unsupported_microphone_sample_format"));
   const step = inputRate / outputRate, frameSamples = Math.round(outputRate / 50) * channels;
   let remaining = step, sum = 0, packet = new Int16Array(frameSamples), filled = 0;
   return input => {
@@ -49,7 +50,7 @@ export function createBrowserAudio({
   async function ready() {
     if (!context) context = createContext();
     await context.resume();
-    if (context.state !== 'running') throw new Error('请点按画面允许播放音频');
+    if (context.state !== 'running') throw new Error(t("web_tap_the_display_to_allow_audio_playback"));
     return context;
   }
   function stopPlayback(id = null) {
@@ -79,9 +80,9 @@ export function createBrowserAudio({
     stopMicrophone(); microphone = false; readyState();
     if (!enabled) { state(); return; }
     try {
-      if (!secure()) throw new Error('浏览器麦克风需要可信 HTTPS，请先打开 HTTPS 入口并配置证书。');
+      if (!secure()) throw new Error(t("web_browser_microphones_require_trusted_https_open_the_https_address"));
       const audio = await ready();
-      if (!audio.audioWorklet) throw new Error('此浏览器不支持麦克风音频处理，请使用 Android 麦克风。');
+      if (!audio.audioWorklet) throw new Error(t("web_this_browser_does_not_support_microphone_audio_processing_use"));
       await audio.audioWorklet.addModule('/audio-worklet.js');
       if (microphoneGeneration !== token) return;
       const captured = await getMicrophone();
@@ -96,13 +97,13 @@ export function createBrowserAudio({
         packet.set(new Uint8Array(event.data), 12); sendBinary(packet.buffer);
       };
       captured.getAudioTracks().forEach(track => { track.onended = () => {
-        if (microphoneGeneration === token) { microphone = false; stopMicrophone(); readyState(); state('麦克风已停止，音频输入已恢复到 Android。'); }
+        if (microphoneGeneration === token) { microphone = false; stopMicrophone(); readyState(); state(t("web_microphone_stopped_audio_input_has_returned_to_android")); }
       }; });
       microphone = true; readyState(); state();
     } catch (error) {
       if (microphoneGeneration !== token) return;
       stopMicrophone(); microphone = false; readyState();
-      state(error.name === 'NotAllowedError' ? '麦克风权限被拒绝，请允许此站点访问麦克风后重试。' : error.message);
+      state(error.name === 'NotAllowedError' ? t("web_microphone_permission_denied_allow_this_site_to_use_the") : error.message);
     }
   }
   function receive(buffer) {
@@ -138,7 +139,7 @@ export function createBrowserAudio({
         for (const id of new Set([...nodes].filter(node => node.media).map(node => node.stream))) stopPlayback(id);
       }
       const nextPlayback = message.playback === true, nextMicrophone = message.microphone === true;
-      if (nextPlayback && !playback || nextMicrophone && !microphone) state('如果浏览器阻止自动播放，请点按画面继续。');
+      if (nextPlayback && !playback || nextMicrophone && !microphone) state(t("web_if_the_browser_blocks_autoplay_tap_the_display_to"));
       if (desiredPlayback !== nextPlayback) { desiredPlayback = nextPlayback; if (connected) setPlayback(nextPlayback); }
       if (desiredMicrophone !== nextMicrophone) { desiredMicrophone = nextMicrophone; if (connected) setMicrophone(nextMicrophone); }
       gestureRetry = false;
@@ -154,7 +155,7 @@ export function createBrowserAudio({
     if (message.type !== 'mic-config') return false;
     if (!microphone || !worklet || !connected) return true;
     if (![1, 2].includes(message.channels) || message.rate < 8000 || message.rate > context.sampleRate) {
-      setMicrophone(false); state('此麦克风采样格式不可用，已恢复 Android 输入。'); return true;
+      setMicrophone(false); state(t("web_microphone_sample_format_unavailable_input_has_returned_to_android")); return true;
     }
     micId = message.id; micSequence = 0;
     worklet.port.postMessage({ rate: message.rate, channels: message.channels });
