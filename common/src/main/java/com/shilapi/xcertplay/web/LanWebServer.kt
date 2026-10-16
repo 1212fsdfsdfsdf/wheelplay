@@ -495,12 +495,14 @@ internal class LanWebServer(
         }
 
         override fun close(
-            code: WebSocketFrame.CloseCode,
-            reason: String,
+            code: WebSocketFrame.CloseCode?,
+            reason: String?,
             initiatedByRemote: Boolean,
         ) {
             // Keep the reader alive until the queued close reply is written; NanoWSD's default
             // close changes state immediately and would close the socket before this async write.
+            // A close frame without a status code reaches here as null code/reason, and NanoWSD's
+            // CloseFrame answers it with an equally payload-free close frame.
             if (closing.compareAndSet(false, true))
                 sendFrame(WebSocketFrame.CloseFrame(code, reason))
         }
@@ -730,8 +732,8 @@ internal class LanWebServer(
         }
 
         override fun onClose(
-            code: WebSocketFrame.CloseCode,
-            reason: String,
+            code: WebSocketFrame.CloseCode?,
+            reason: String?,
             initiatedByRemote: Boolean,
         ) = cleanup()
 
