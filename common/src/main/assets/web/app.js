@@ -114,7 +114,7 @@ function createVideoCanvasRenderer(video, canvas, {
       const resized = canvas.width !== width || canvas.height !== height;
       // Prefer the frame counter over currentTime, which can advance between
       // decoded frames. Some WebRTC implementations leave this counter at zero.
-      const frames = (video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : undefined).totalVideoFrames;
+      const frames = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality().totalVideoFrames : undefined;
       const time = (metadata && metadata.mediaTime) || video.currentTime;
       const key = !stalled && frames > 0 ? `frame:${frames}` : Number.isFinite(time) ? `time:${time}` : null;
       if (!resized && key !== null && key === lastFrameKey) return;
@@ -693,7 +693,7 @@ if (typeof document !== 'undefined') {
           // The server resets availability when the iPhone starts a new video configuration.
           if (!data.rtcAvailable) rtcRequested = false;
           setLive(Boolean(data.streaming && (rtc.active || lastFrame && screen.naturalWidth)));
-          const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` 路 ${rtcFps} fps`}` : `JPEG${data.fallback ? t("web_fallback") : ''}`;
+          const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` 璺?${rtcFps} fps`}` : `JPEG${data.fallback ? t("web_fallback") : ''}`;
           $('status').textContent = live ? t("web_transport_touch_connected", transport, rtc.recovering ? t("web_waiting_for_recovery") : '') : t("web_connected_waiting_for_iphone_video");
         }
         if (data.type === 'input-unavailable') $('status').textContent = t("web_waiting_for_iphone_touch_input");
