@@ -1,3 +1,15 @@
+window.onerror = function(msg, url, line, col) {
+  var d = document.createElement('div');
+  d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c00;color:#fff;padding:10px;z-index:99999;font-size:14px;font-family:monospace;white-space:pre-wrap;';
+  d.textContent = 'JS错误: ' + msg + ' 行:' + line;
+  document.body.appendChild(d);
+};
+window.addEventListener('unhandledrejection', function(e) {
+  var d = document.createElement('div');
+  d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#900;color:#fff;padding:10px;z-index:99999;font-size:14px;font-family:monospace;white-space:pre-wrap;';
+  d.textContent = '请求错误: ' + (e.reason && e.reason.message ? e.reason.message : e.reason);
+  document.body.appendChild(d);
+});
 function t(key, ...args) {
   const message = (window.wheelplayMessages && window.wheelplayMessages[key]) || key;
   return message.replace(/%(\d+)\$s/g, (_, index) => String(args[Number(index) - 1] || ''));
