@@ -1,4 +1,5 @@
-﻿window.onerror = function(msg, url, line, col) {
+﻿document.body.style.background = '#ff0000';
+window.onerror = function(msg, url, line, col) {
   var d = document.createElement('div');
   d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c00;color:#fff;padding:10px;z-index:99999;font-size:14px;font-family:monospace;white-space:pre-wrap;';
   d.textContent = 'JS错误: ' + msg + ' 行:' + line;
