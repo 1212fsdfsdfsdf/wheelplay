@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#11161a">
 <title>{{web_wheelplay_head_unit_display}}</title>
 <link rel="stylesheet" href="/style.css">
-<script>window.globalThis=window;</script>
+<script src="/polyfill.js"></script>
 <script src="/i18n.js"></script>
-<script src="/app.js"></script>
+<script src="/app.js" defer></script>
 </head>
 <body>
 <header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">{{ui_waiting_for_connection}}</div><nav><button id="fullscreen" type="button">{{web_full_screen}}</button><button id="disconnect" type="button" hidden>{{web_disconnect}}</button></nav></header>
