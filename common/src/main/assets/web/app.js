@@ -1,4 +1,4 @@
-window.onerror = function(msg, url, line, col) {
+﻿window.onerror = function(msg, url, line, col) {
   var d = document.createElement('div');
   d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c00;color:#fff;padding:10px;z-index:99999;font-size:14px;font-family:monospace;white-space:pre-wrap;';
   d.textContent = 'JS错误: ' + msg + ' 行:' + line;
@@ -53,7 +53,7 @@ function createBrowserAudio({
   createContext = () => new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }),
   getMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }),
   createWorklet = context => new AudioWorkletNode(context, 'wheelplay-microphone', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] }),
-  secure = () => window.isSecureContext && location.protocol === 'https:' && !!navigator.mediaDevices?.getUserMedia,
+  secure = () => window.isSecureContext && location.protocol === 'https:' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
 } = {}) {
   let context = null, playback = false, microphone = false, connected = false;
   let playbackGeneration = 0, microphoneGeneration = 0;
@@ -78,7 +78,7 @@ function createBrowserAudio({
   function stopMicrophone() {
     micId = null;
     if (worklet) { worklet.port.postMessage(null); worklet.port.onmessage = null; worklet.disconnect(); }
-    source?.disconnect(); stream?.getTracks().forEach(track => track.stop());
+    (source && source.disconnect)(); (stream && stream.getTracks)().forEach(track => track.stop());
     worklet = source = stream = null;
   }
   async function setPlayback(enabled) {
@@ -126,7 +126,7 @@ function createBrowserAudio({
     const frame = decodeAudioPacket(buffer);
     if (!frame) return false;
     send({ type: 'audio-ack', sequence: frame.sequence });
-    if (!playback || !connected || context?.state !== 'running') return true;
+    if (!playback || !connected || (context && context.state) !== 'running') return true;
     const now = context.currentTime;
     const delay = frame.media ? mediaBufferMillis / 1000 : .06;
     // A media burst after a radio gap must fit above the selected start buffer.
@@ -163,9 +163,9 @@ function createBrowserAudio({
       return true;
     }
     if (message.type === 'audio-stop') { stopPlayback(message.stream); return true; }
-    if (message.type === 'audio-reset') { stopPlayback(); micId = null; worklet?.port.postMessage(null); stream?.getAudioTracks().forEach(t => { t.enabled = false; }); return true; }
+    if (message.type === 'audio-reset') { stopPlayback(); micId = null; (worklet && worklet.port).postMessage(null); (stream && stream.getAudioTracks)().forEach(t => { t.enabled = false; }); return true; }
     if (message.type === 'mic-stop') {
-      if (message.id === micId) { micId = null; worklet?.port.postMessage(null); stream?.getAudioTracks().forEach(t => { t.enabled = false; }); }
+      if (message.id === micId) { micId = null; (worklet && worklet.port).postMessage(null); (stream && stream.getAudioTracks)().forEach(t => { t.enabled = false; }); }
       return true;
     }
     if (message.type !== 'mic-config') return false;
@@ -183,7 +183,7 @@ function createBrowserAudio({
     desiredPlayback = desiredMicrophone = gestureRetry = false;
     mediaBufferMillis = 300;
     stopMicrophone(); stopPlayback();
-    const old = context; context = null; old?.close().catch(() => {}); state();
+    const old = context; context = null; (old && old.close)().catch(() => {}); state();
   }
   return { receive, control, close,
     attach() { connected = true; state(); },
@@ -1047,3 +1047,4 @@ if (typeof document !== 'undefined') {
   }
   initializePairing(linkedCode);
 }
+
