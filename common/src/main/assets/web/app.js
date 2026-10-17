@@ -1,6 +1,10 @@
-import { t } from './text.js';
+function t(key, ...args) {
+  const message = (window.wheelplayMessages && window.wheelplayMessages[key]) || key;
+  return message.replace(/%(\d+)\$s/g, (_, index) => String(args[Number(index) - 1] || ''));
+}
+
 // Coordinates are normalized in the visible video rectangle, excluding letterboxing.
-export function mapPoint(clientX, clientY, rect, width, height, clamp = false) {
+function mapPoint(clientX, clientY, rect, width, height, clamp = false) {
   if (width <= 0 || height <= 0 || rect.width <= 0 || rect.height <= 0) return null;
   const scale = Math.min(rect.width / width, rect.height / height);
   const w = width * scale, h = height * scale;
@@ -10,7 +14,7 @@ export function mapPoint(clientX, clientY, rect, width, height, clamp = false) {
   return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
 }
 
-export function pairingCodeFromUrl(search) {
+function pairingCodeFromUrl(search) {
   const match = String(search || '').match(/(?:^|[?&])code=([^&]*)/);
   let code = '';
   try { code = match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : ''; } catch (_) { return null; }
@@ -18,7 +22,7 @@ export function pairingCodeFromUrl(search) {
 }
 
 // Keep essential controls until WebSocket accepts them. A successful send is never retried.
-export function createControlOutbox(socket, {
+function createControlOutbox(socket, {
   schedule = setTimeout, cancel = clearTimeout, now = () => Date.now(), onFailure = () => socket.close(),
 } = {}) {
   const touches = [];
@@ -83,7 +87,7 @@ export function createControlOutbox(socket, {
 // Keep the decoder in the DOM, outside the viewport. display:none/hidden can
 // suppress video frame callbacks on embedded browsers. drawImage copies decoded
 // frames directly; it does not read pixels back through getImageData.
-export function createVideoCanvasRenderer(video, canvas, {
+function createVideoCanvasRenderer(video, canvas, {
   onFrame = () => {}, onError = () => {},
   requestFrame = callback => requestAnimationFrame(callback), cancelFrame = id => cancelAnimationFrame(id),
   now = () => performance.now(),
@@ -110,8 +114,8 @@ export function createVideoCanvasRenderer(video, canvas, {
       const resized = canvas.width !== width || canvas.height !== height;
       // Prefer the frame counter over currentTime, which can advance between
       // decoded frames. Some WebRTC implementations leave this counter at zero.
-      const frames = video.getVideoPlaybackQuality?.().totalVideoFrames;
-      const time = metadata?.mediaTime ?? video.currentTime;
+      const frames = (video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : undefined).totalVideoFrames;
+      const time = (metadata && metadata.mediaTime) || video.currentTime;
       const key = !stalled && frames > 0 ? `frame:${frames}` : Number.isFinite(time) ? `time:${time}` : null;
       if (!resized && key !== null && key === lastFrameKey) return;
       if (resized) { canvas.width = width; canvas.height = height; }
@@ -152,7 +156,7 @@ export function createVideoCanvasRenderer(video, canvas, {
 }
 
 // Video WebRTC remains receive-only. Browser audio uses the paired WebSocket.
-export function createRtcReceiver(video, {
+function createRtcReceiver(video, {
   send, onReady = () => {}, onStop = () => {}, onStats = () => {},
   onTrack = () => {}, onReset = () => {},
   createPeer = () => new RTCPeerConnection({ iceServers: [] }),
@@ -237,7 +241,7 @@ export function createRtcReceiver(video, {
               bitrateMbps: rate('bytesReceived') === null ? null : rate('bytesReceived') * 8 / 1e6,
               rttMs,
             };
-            onStats(metrics.presentedFps ?? metrics.decodedFps, metrics);
+            onStats(metrics.presentedFps || metrics.decodedFps, metrics);
             send({ type: 'rtc-feedback', id, packets: Math.max(0, stat.packetsReceived || 0),
               lost: Math.max(0, stat.packetsLost || 0), decoded, nack: Math.max(0, stat.nackCount || 0), rttMs });
             previousStats = { at, stat, presented };
@@ -350,9 +354,9 @@ if (typeof document !== 'undefined') {
     onError: () => { if (rtc) rtc.fallback(); },
   });
   const pairApi = async (path, request = null) => {
-    const headers = request?.token ? { 'X-Pair-Token': request.token } :
-      request?.code ? { 'X-Pair-Code': request.code } :
-      request?.device ? { 'X-Device-Id': request.device.id, 'X-Device-Secret': request.device.secret } :
+    const headers = (request && request.token) ? { 'X-Pair-Token': request.token } :
+      (request && request.code) ? { 'X-Pair-Code': request.code } :
+      (request && request.device) ? { 'X-Device-Id': request.device.id, 'X-Device-Secret': request.device.secret } :
       request ? { 'X-Pair-Id': request.id, 'X-Pair-Secret': request.secret } : {};
     const controller = typeof AbortController === 'undefined' ? null : new AbortController();
     const timeout = setTimeout(() => controller && controller.abort(), 8000);
@@ -505,7 +509,7 @@ if (typeof document !== 'undefined') {
   const browserAudio = createBrowserAudio({
     send,
     sendBinary: packet => {
-      if (socket?.readyState !== WebSocket.OPEN || socket.bufferedAmount > 8192) return false;
+      if ((!socket || socket.readyState !== WebSocket.OPEN) || socket.bufferedAmount > 8192) return false;
       try { socket.send(packet); return true; } catch (_) { return false; }
     },
     onState: ({ error }) => {
@@ -577,12 +581,12 @@ if (typeof document !== 'undefined') {
   function prepareLaunchPresentation() {
     const presentation = { immersive: $('fullscreen-on-start').checked, ownsFullscreen: false, cancelled: false };
     launchPresentation = presentation;
-    if (!presentation.immersive || document.fullscreenElement || !document.documentElement?.requestFullscreen) return;
+    if (!presentation.immersive || document.fullscreenElement || !(document.documentElement && document.documentElement.requestFullscreen)) return;
     presentation.ownsFullscreen = true;
     try {
       // Keep the request in the submit gesture, before asynchronous pairing or WebSocket setup.
       Promise.resolve(document.documentElement.requestFullscreen()).then(() => {
-        if (presentation.cancelled && !launchPresentation?.immersive && document.fullscreenElement) exitLaunchFullscreen();
+        if (presentation.cancelled && !(launchPresentation && launchPresentation.immersive) && document.fullscreenElement) exitLaunchFullscreen();
       }).catch(() => { presentation.ownsFullscreen = false; });
     } catch (_) { presentation.ownsFullscreen = false; }
   }
@@ -648,7 +652,7 @@ if (typeof document !== 'undefined') {
       $('phone-connect').disabled = false;
       $('phone-connect-message').textContent = t("web_keep_wheelplay_in_the_foreground_on_android_tap_connect");
       $('pairing').hidden = true; $('display').hidden = false; $('disconnect').hidden = false;
-      $('topbar').hidden = $('hide-toolbar').checked || Boolean(launchPresentation?.immersive);
+      $('topbar').hidden = $('hide-toolbar').checked || Boolean(launchPresentation && launchPresentation.immersive);
       lastViewportSignature = '';
       scheduleViewportReport();
       $('status').textContent = t("web_connected_waiting_for_video");
@@ -678,8 +682,8 @@ if (typeof document !== 'undefined') {
           const message = data.message; disconnect(); $('message').textContent = message; return;
         }
         if (data.type === 'status') {
-          performanceStats.source = data.performance?.source ?? null;
-          performanceStats.transport = data.performance?.transport ?? null;
+          performanceStats.source = (data.performance && data.performance.source) || null;
+          performanceStats.transport = (data.performance && data.performance.transport) || null;
           lastStatus = Date.now(); width = data.width; height = data.height;
           $('stage').textContent = data.stage || t("web_waiting_for_iphone_video");
           rtc.progress(data.rtcFrames || 0);
@@ -689,7 +693,7 @@ if (typeof document !== 'undefined') {
           // The server resets availability when the iPhone starts a new video configuration.
           if (!data.rtcAvailable) rtcRequested = false;
           setLive(Boolean(data.streaming && (rtc.active || lastFrame && screen.naturalWidth)));
-          const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : `JPEG${data.fallback ? t("web_fallback") : ''}`;
+          const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` 路 ${rtcFps} fps`}` : `JPEG${data.fallback ? t("web_fallback") : ''}`;
           $('status').textContent = live ? t("web_transport_touch_connected", transport, rtc.recovering ? t("web_waiting_for_recovery") : '') : t("web_connected_waiting_for_iphone_video");
         }
         if (data.type === 'input-unavailable') $('status').textContent = t("web_waiting_for_iphone_touch_input");
@@ -793,7 +797,7 @@ if (typeof document !== 'undefined') {
   });
   document.addEventListener('fullscreenchange', () => {
     $('fullscreen').textContent = document.fullscreenElement ? t("web_exit_full_screen") : t("web_full_screen");
-    if (!document.fullscreenElement && launchPresentation?.immersive) {
+    if (!document.fullscreenElement && launchPresentation && launchPresentation.immersive) {
       launchPresentation.immersive = false;
       launchPresentation.ownsFullscreen = false;
       $('topbar').hidden = false;
@@ -843,11 +847,11 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
   window.addEventListener('pagehide', () => disconnect(false));
   window.addEventListener('pageshow', event => { if (event.persisted) initializePairing(); });
-  const linkedCode = pairingCodeFromUrl(window.location?.search || '');
+  const linkedCode = pairingCodeFromUrl(window.location.search || '');
   if (linkedCode) {
     $('code').value = linkedCode;
     // Keep the short-lived code out of copied URLs and browser history entries.
-    window.history?.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
   }
   initializePairing(linkedCode);
 }
