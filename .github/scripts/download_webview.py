@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Download Android System WebView 97.0.4692.98 (armeabi-v7a / 32-bit) APK.
-Tries APKMirror -> APKPure(with referer) -> APKCombo. Runs in GitHub Actions.
+Tries APKMirror -> Uptodown -> APKPure. Runs in GitHub Actions.
 """
 import re
 import sys
@@ -20,6 +20,16 @@ HEADERS = {
 OUT = "webview97-armeabi-v7a.apk"
 
 
+def save_stream(resp):
+    total = 0
+    with open(OUT, "wb") as f:
+        for chunk in resp.iter_content(1024 * 256):
+            if chunk:
+                f.write(chunk)
+                total += len(chunk)
+    return total
+
+
 def apkmirror():
     base = "https://www.apkmirror.com"
     page = (base + "/apk/google-inc/android-system-webview/"
@@ -31,147 +41,134 @@ def apkmirror():
     if r.status_code != 200:
         return None
     soup = BeautifulSoup(r.text, "html.parser")
-
-    # Debug: print all apk-download links with their row text
-    all_rows = soup.select("div.table-row")
-    print(f"[apkmirror] table rows: {len(all_rows)}")
-    for row in all_rows:
+    rows = soup.select("div.table-row")
+    print(f"[apkmirror] table rows: {len(rows)}")
+    target = None
+    for row in rows:
         txt = row.get_text(" ", strip=True)
         a = row.select_one('a[href*="apk-download"]')
-        if a:
-            print(f"[apkmirror] ROW: abi-ish={txt[:80]!r} href={a.get('href')}")
-
-    # Pick the row containing armeabi-v7a
-    target = None
-    for row in all_rows:
-        txt = row.get_text(" ", strip=True)
-        if "armeabi-v7a" in txt:
-            a = row.select_one('a[href*="apk-download"]')
-            if a:
-                target = a.get("href")
-                break
+        if not a:
+            continue
+        # We want the full APK for armeabi-v7a, NOT BUNDLE, and for Android 8.x (avoid "Android 10")
+        if ("APK" in txt) and ("armeabi-v7a" in txt) and ("Android 10" not in txt):
+            target = a.get("href")
+            print(f"[apkmirror] SELECTED: {txt[:110]!r} href={target}")
+            break
     if not target:
-        # fallback: any row that mentions an abi at all
-        for row in all_rows:
-            txt = row.get_text(" ", strip=True)
-            if re.search(r"armeabi-v7a|arm64-v8a|x86", txt):
-                a = row.select_one('a[href*="apk-download"]')
-                if a:
-                    target = a.get("href")
-                    break
-    if not target:
-        print("[apkmirror] no variant row found")
+        print("[apkmirror] no suitable APK/armeabi-v7a row")
         return None
     dl_page = base + target
     print(f"[apkmirror] dl page: {dl_page}")
     r2 = s.get(dl_page, timeout=120)
     print(f"[apkmirror] dl page status={r2.status_code} len={len(r2.text)}")
 
-    # download.php links
-    m = re.search(r'href="([^"]*download\.php\?id=\d+[^"]*)"', r2.text)
-    if not m:
-        m = re.search(r'(https?://[^"\']*download\.php\?id=\d+[^"\']*)', r2.text)
-    if not m:
-        print("[apkmirror] no download.php link; dumping candidates")
-        for mm in re.finditer(r'[^"\']*download\.php[^"\']*', r2.text):
-            print("  cand:", mm.group(0)[:150])
-        return None
-    dl = m.group(1)
-    if dl.startswith("/"):
-        dl = base + dl
-    print(f"[apkmirror] download.php: {dl}")
-    r3 = s.get(dl, timeout=120, allow_redirects=True)
-    print(f"[apkmirror] after download.php status={r3.status_code} url={r3.url} len={len(r3.content)}")
+    # Dump every anchor + data attributes mentioning download/php/id
+    soup2 = BeautifulSoup(r2.text, "html.parser")
+    found = False
+    for a in soup2.find_all("a", href=True):
+        href = a["href"]
+        if "download" in href.lower() or "php" in href.lower():
+            print(f"[apkmirror] anchor: {href[:200]} rel={a.get('rel')} class={a.get('class')}")
+            found = True
+    # Also search raw text for download.php patterns
+    for mm in re.finditer(r'[^\s"\']*(?:download\.php|/wp-content/)[^\s"\']*', r2.text):
+        print(f"[apkmirror] raw cand: {mm.group(0)[:200]}")
+        found = True
+    if not found:
+        print("[apkmirror] NO download anchors found at all")
 
-    final = None
-    if ".apk" in r3.url and r3.status_code == 200:
-        final = r3.url
-    elif len(r3.content) > 500000:  # already the apk body?
-        print("[apkmirror] download.php returned binary directly")
-        with open(OUT, "wb") as f:
-            f.write(r3.content)
-        return len(r3.content)
-    else:
-        # page may contain key link or direct apk
-        m2 = re.search(r'download\.php\?id=(\d+)&key=([0-9a-f]+)', r3.text)
-        if m2:
-            final = base + f"/wp-content/themes/APKMirror/download.php?id={m2.group(1)}&key={m2.group(2)}"
-        else:
-            m3 = re.search(r'(https?://[^"\']+\.apk[^"\']*)', r3.text)
-            if m3 and "download.php" not in m3.group(1):
-                final = m3.group(1)
+    # Try known patterns
+    candidates = []
+    m = re.search(r'href="([^"]*download\.php\?[^"]*)"', r2.text)
+    if m:
+        candidates.append(m.group(1))
+    m = re.search(r'data-(?:url|link|id)="([^"]*)"', r2.text)
+    if m:
+        candidates.append(m.group(1))
+    for c in candidates:
+        if c.startswith("/"):
+            c = base + c
+        print(f"[apkmirror] try candidate: {c[:200]}")
+        try:
+            r3 = s.get(c, timeout=120, allow_redirects=True)
+            print(f"[apkmirror] cand status={r3.status_code} url={r3.url} len={len(r3.content)}")
+            if ".apk" in r3.url and r3.status_code == 200:
+                total = save_stream(r3)
+                print(f"[apkmirror] saved bytes={total}")
+                if total > 1000000:
+                    return total
+            elif len(r3.content) > 500000:
+                with open(OUT, "wb") as f:
+                    f.write(r3.content)
+                print(f"[apkmirror] direct binary bytes={len(r3.content)}")
+                return len(r3.content)
             else:
-                for mm in re.finditer(r'[^"\']*download\.php[^"\']*', r3.text):
-                    print("  key cand:", mm.group(0)[:150])
-    if not final:
-        print("[apkmirror] cannot resolve final url")
+                # maybe page with key link
+                m2 = re.search(r'download\.php\?id=(\d+)&key=([0-9a-f]+)', r3.text)
+                if m2:
+                    final = base + f"/wp-content/themes/APKMirror/download.php?id={m2.group(1)}&key={m2.group(2)}"
+                    print(f"[apkmirror] keyed url: {final[:200]}")
+                    r4 = s.get(final, timeout=300, stream=True)
+                    total = save_stream(r4)
+                    print(f"[apkmirror] saved bytes={total}")
+                    if total > 1000000:
+                        return total
+        except Exception as e:
+            print(f"[apkmirror] candidate error: {e}")
+    return None
+
+
+def uptodown():
+    base = "https://android-system-webview.en.uptodown.com"
+    s = requests.Session()
+    s.headers.update(HEADERS)
+    page = base + "/android/download"
+    try:
+        r = s.get(page, timeout=90)
+        print(f"[uptodown] status={r.status_code} len={len(r.text)}")
+        # Uptodown download URL is a JS-driven POST; find data-url or /post/download
+        m = re.search(r'data-url="([^"]*)"', r.text)
+        if not m:
+            m = re.search(r'(/post/download/\d+)', r.text)
+        if not m:
+            m = re.search(r'(https?://[^"\']+\.apk[^"\']*)', r.text)
+        if not m:
+            print("[uptodown] no download url")
+            return None
+        url = m.group(1)
+        if url.startswith("/"):
+            url = base + url
+        print(f"[uptodown] download url: {url[:200]}")
+        r2 = s.get(url, timeout=300, stream=True)
+        total = save_stream(r2)
+        print(f"[uptodown] saved bytes={total}")
+        return total if total > 1000000 else None
+    except Exception as e:
+        print(f"[uptodown] error: {e}")
         return None
-    print(f"[apkmirror] final url: {final[:200]}")
-    r4 = s.get(final, timeout=300, stream=True)
-    total = 0
-    with open(OUT, "wb") as f:
-        for chunk in r4.iter_content(1024 * 256):
-            if chunk:
-                f.write(chunk)
-                total += len(chunk)
-    print(f"[apkmirror] saved bytes={total}")
-    return total if total > 1000000 else None
 
 
 def apkpure():
-    version_codes = {"97.0.4692.98": "469209800"}
-    vc = version_codes.get("97.0.4692.98")
-    if not vc:
-        return None
+    vc = "469209800"
     s = requests.Session()
     s.headers.update(HEADERS)
     s.headers["Referer"] = "https://apkpure.com/android-system-webview/com.google.android.webview/download/97.0.4692.98"
     url = f"https://d.apkpure.com/b/APK/com.google.android.webview?versionCode={vc}"
-    r = s.get(url, timeout=300, stream=True, allow_redirects=True)
-    print(f"[apkpure] status={r.status_code} final={r.url} len={len(r.content) if r.status_code!=200 else 'stream'}")
-    if r.status_code != 200 or len(r.content) < 1000000:
-        print("[apkpure] failed/blocked")
+    try:
+        r = s.get(url, timeout=300, stream=True, allow_redirects=True)
+        print(f"[apkpure] status={r.status_code} final={r.url}")
+        if r.status_code != 200:
+            return None
+        total = save_stream(r)
+        print(f"[apkpure] saved bytes={total}")
+        return total if total > 1000000 else None
+    except Exception as e:
+        print(f"[apkpure] error: {e}")
         return None
-    total = 0
-    with open(OUT, "wb") as f:
-        for chunk in r.iter_content(1024 * 256):
-            if chunk:
-                f.write(chunk)
-                total += len(chunk)
-    print(f"[apkpure] saved bytes={total}")
-    return total if total > 1000000 else None
-
-
-def apkcombo():
-    for host in ("apkcombo.com", "apkcombo.net", "apkcombo.io"):
-        try:
-            base = f"https://{host}"
-            page = base + "/android-system-webview/com.google.android.webview/download/apk"
-            s = requests.Session()
-            s.headers.update(HEADERS)
-            r = s.get(page, timeout=60, allow_redirects=True)
-            print(f"[apkcombo/{host}] status={r.status_code} len={len(r.text)} url={r.url}")
-            m = re.search(r'(https?://[^"\']+\.apk[^"\']*)', r.text)
-            if m:
-                url = m.group(1)
-                r2 = s.get(url, timeout=300, stream=True)
-                total = 0
-                with open(OUT, "wb") as f:
-                    for chunk in r2.iter_content(1024 * 256):
-                        if chunk:
-                            f.write(chunk)
-                            total += len(chunk)
-                print(f"[apkcombo/{host}] saved bytes={total}")
-                if total > 1000000:
-                    return total
-        except Exception as e:
-            print(f"[apkcombo/{host}] error: {e}")
-            continue
-    return None
 
 
 def main():
-    for fn in (apkmirror, apkpure, apkcombo):
+    for fn in (apkmirror, uptodown, apkpure):
         try:
             ok = fn()
             if ok:
