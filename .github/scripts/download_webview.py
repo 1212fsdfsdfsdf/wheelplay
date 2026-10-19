@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Download Android System WebView 97.0.4692.98 (armeabi-v7a / 32-bit) APK.
-APKMirror via Playwright headless browser. Handles google_vignette overlay.
+APKMirror two-step download via Playwright: click downloadButton -> wait navigation
+to /download/?key= page -> extract real CDN apk link -> download it.
 """
+import re
 import sys
 from playwright.sync_api import sync_playwright
 
@@ -42,19 +44,15 @@ def main():
             print("[pw] no row")
             return 1
 
-        # goto download page directly
         page.goto(dl_page, wait_until="domcontentloaded", timeout=90000)
         print("[pw] on:", page.url)
         page.wait_for_timeout(3000)
-
-        # dismiss possible google vignette overlay
         try:
             page.keyboard.press("Escape")
             page.wait_for_timeout(1000)
         except Exception:
             pass
 
-        # wait for the keyed download button
         btn = None
         try:
             page.wait_for_selector('a[href*="/download/?key="]', timeout=30000)
@@ -62,63 +60,71 @@ def main():
             print("[pw] keyed button found")
         except Exception as e:
             print(f"[pw] keyed button not found: {e}")
-            for a in page.query_selector_all("a.downloadButton"):
-                print("[pw] dlbtn:", (a.get_attribute("href") or "")[:150])
-            # maybe overlay is blocking; try close overlay
-            for sel in [".vignette-close", ".fc-close", "button.close", "[aria-label*='close' i]",
-                        "#close", ".closeBtn", ".btn-close", "a[href='#']"]:
-                try:
-                    el = page.query_selector(sel)
-                    if el:
-                        el.click()
-                        print("[pw] clicked overlay close:", sel)
-                        page.wait_for_timeout(1500)
-                        break
-                except Exception:
-                    pass
-            try:
-                page.wait_for_selector('a[href*="/download/?key="]', timeout=15000)
-                btn = page.query_selector('a[href*="/download/?key="]')
-                print("[pw] keyed button found after overlay close")
-            except Exception as e2:
-                print(f"[pw] still no button: {e2}")
-                return 1
+            return 1
 
-        # click and capture download
+        # Collect all network responses while clicking (catches .apk / CDN redirects)
+        seen = []
+        page.on("response", lambda resp: seen.append(resp.url))
+
+        # click -> should navigate to /download/?key= intermediate page
+        print("[pw] clicking keyed button...")
         try:
-            with page.expect_download(timeout=120000) as dl_info:
+            with page.expect_navigation(wait_until="domcontentloaded", timeout=60000):
                 try:
                     btn.click()
                 except Exception:
                     btn.click(force=True)
-            download = dl_info.value
-            print("[pw] download:", download.suggested_filename)
-            download.save_as(OUT)
-            print("[pw] saved", OUT)
-            return 0
         except Exception as e:
-            print(f"[pw] expect_download failed: {e}")
-            # fallback: intercept responses ending in .apk
-            page2 = ctx.new_page()
-            apk_url = []
-            page2.on("response", lambda resp: apk_url.append(resp.url) if ".apk" in resp.url else None)
+            print(f"[pw] nav wait failed (maybe no nav): {e}")
+
+        page.wait_for_timeout(5000)
+        print("[pw] after click url:", page.url)
+
+        # dump every link on the intermediate page
+        apk_links = []
+        for a in page.query_selector_all("a[href]"):
+            href = a.get_attribute("href") or ""
+            if ".apk" in href or "downloadr" in href or "dw.uptodown" in href or "download" in href:
+                apk_links.append(href)
+                print("[pw] cand link:", href[:200])
+        # meta refresh / iframe / scripts
+        for m in re.finditer(r'(https?://[^\s"\']*\.apk[^\s"\']*)', page.content()):
+            apk_links.append(m.group(1))
+        print("[pw] total apk-ish links:", len(apk_links))
+        # network seen
+        for u in seen:
+            if ".apk" in u or "downloadr" in u:
+                print("[pw] seen resp:", u[:200])
+
+        # try each candidate
+        for u in apk_links:
+            if not u.startswith("http"):
+                u = BASE + u if u.startswith("/") else u
             try:
-                page2.goto(dl_page, wait_until="domcontentloaded", timeout=90000)
-                page2.wait_for_timeout(2000)
-                b2 = page2.query_selector('a[href*="/download/?key="]')
-                if b2:
-                    with page2.expect_download(timeout=120000) as dl2:
-                        try:
-                            b2.click()
-                        except Exception:
-                            b2.click(force=True)
-                    dl2.value.save_as(OUT)
-                    print("[pw] saved via second page:", OUT)
+                resp = ctx.request.get(u, timeout=120000)
+                print(f"[pw] fetch {u[:120]} -> {resp.status} len={len(resp.body())}")
+                if len(resp.body()) > 1000000:
+                    with open(OUT, "wb") as f:
+                        f.write(resp.body())
+                    print("[pw] saved", OUT)
                     return 0
-            except Exception as e2:
-                print(f"[pw] fallback failed: {e2}")
-                print("[pw] apk urls seen:", apk_url[:5])
-                return 1
+            except Exception as e:
+                print(f"[pw] fetch err {u[:80]}: {e}")
+
+        # fallback: if page is the intermediate with a "start download" flow, click it
+        for sel in ['a[href*=".apk"]', "#download-link", "a[download]", 'a[href*="downloadr2"]']:
+            try:
+                el = page.query_selector(sel)
+                if el:
+                    with page.expect_download(timeout=90000) as dl:
+                        el.click(force=True)
+                    dl.value.save_as(OUT)
+                    print("[pw] saved via fallback click", OUT)
+                    return 0
+            except Exception:
+                pass
+        print("[pw] nothing worked")
+        return 1
 
 
 if __name__ == "__main__":
