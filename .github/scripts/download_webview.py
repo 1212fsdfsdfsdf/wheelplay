@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Download Android System WebView 97.0.4692.98 (armeabi-v7a / 32-bit) APK.
-APKMirror: variant page -> download/?key=... -> APK CDN.
+APKMirror: variant page -> download/?key=... -> intermediate page -> CDN .apk.
 """
 import re
 import sys
@@ -42,7 +42,6 @@ def apkmirror():
     r2 = s.get(dl_page, timeout=120)
     print(f"[apkmirror] dl page status={r2.status_code} len={len(r2.text)}")
     soup2 = BeautifulSoup(r2.text, "html.parser")
-    # The real download button: href contains /download/?key=
     key_url = None
     for a in soup2.find_all("a", href=True):
         href = a.get("href", "")
@@ -56,17 +55,46 @@ def apkmirror():
         key_url = base + key_url
     print(f"[apkmirror] keyed url: {key_url[:180]}")
 
-    r3 = s.get(key_url, timeout=120, allow_redirects=True, stream=True)
-    print(f"[apkmirror] status={r3.status_code} final={r3.url[:200]} len={r3.headers.get('Content-Length')}")
-    # APKMirror returns 302 to CDN then binary; follow and save
-    total = 0
-    with open(OUT, "wb") as f:
-        for chunk in r3.iter_content(1024 * 256):
-            if chunk:
-                f.write(chunk)
-                total += len(chunk)
-    print(f"[apkmirror] saved bytes={total}")
-    return total if total > 1000000 else None
+    # Visit keyed url -> intermediate page
+    r3 = s.get(key_url, timeout=120, allow_redirects=True)
+    print(f"[apkmirror] keyed status={r3.status_code} final={r3.url[:160]} len={len(r3.content)}")
+    text = r3.text
+
+    # Dump every link / url that could be the apk
+    apk_candidates = []
+    for m in re.finditer(r'(https?://[^\s"\']+\.apk[^\s"\']*)', text):
+        apk_candidates.append(m.group(1))
+    if not apk_candidates:
+        # Some pages embed it in JS: var url='...' or "url":"..."
+        for m in re.finditer(r'https?://[^\s"\']*apkmirror\.com[^\s"\']*', text):
+            u = m.group(0)
+            if "download" in u or ".apk" in u:
+                apk_candidates.append(u)
+    print(f"[apkmirror] apk candidates: {len(apk_candidates)}")
+    for c in apk_candidates[:10]:
+        print("[apkmirror]   cand:", c[:200])
+
+    for c in apk_candidates:
+        try:
+            r4 = s.get(c, timeout=300, stream=True, allow_redirects=True)
+            total = 0
+            with open(OUT, "wb") as f:
+                for chunk in r4.iter_content(1024 * 256):
+                    if chunk:
+                        f.write(chunk)
+                        total += len(chunk)
+            print(f"[apkmirror] try cand saved={total} final={r4.url[:160]}")
+            if total > 1000000:
+                return total
+        except Exception as e:
+            print(f"[apkmirror] cand error: {e}")
+
+    # fallback: dump script vars
+    print("[apkmirror] dumping script snippets around 'download'")
+    for m in re.finditer(r'download[^;]{0,120}', text):
+        print("   ", m.group(0)[:140])
+        break
+    return None
 
 
 def main():
