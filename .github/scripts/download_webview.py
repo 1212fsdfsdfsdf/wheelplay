@@ -1,131 +1,92 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Download Android System WebView 97.0.4692.98 (armeabi-v7a / 32-bit) APK.
-Uptodown: versions page -> version page -> download button -> CDN apk.
+APKMirror via Playwright headless browser (bypass JS redirect).
 """
-import re
 import sys
-import requests
-from bs4 import BeautifulSoup
-
-HEADERS = {
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-    "Accept-Language": "en-US,en;q=0.9",
-}
+import time
+from playwright.sync_api import sync_playwright
 
 OUT = "webview97-armeabi-v7a.apk"
-BASE = "https://android-system-webview.en.uptodown.com"
-
-
-def save_stream(resp):
-    total = 0
-    with open(OUT, "wb") as f:
-        for chunk in resp.iter_content(1024 * 256):
-            if chunk:
-                f.write(chunk)
-                total += len(chunk)
-    return total
-
-
-def uptodown():
-    s = requests.Session()
-    s.headers.update(HEADERS)
-    # 1. versions list page
-    versions_url = BASE + "/android/versions"
-    r = s.get(versions_url, timeout=90)
-    print(f"[uptodown] versions page status={r.status_code} len={len(r.text)}")
-    # find link to version 97.0.4692.98
-    ver_link = None
-    for m in re.finditer(r'href="([^"]*)"[^>]*>([^<]*97\.0\.4692\.98[^<]*)<', r.text):
-        ver_link = m.group(1)
-        print(f"[uptodown] found version link: {ver_link}")
-        break
-    if not ver_link:
-        # try post links near version text
-        idx = r.text.find("97.0.4692.98")
-        if idx > 0:
-            chunk = r.text[max(0, idx-3000):idx+500]
-            m = re.search(r'href="([^"]*(?:post|download)/[^"]*)"', chunk)
-            if m:
-                ver_link = m.group(1)
-                print(f"[uptodown] post link near version: {ver_link}")
-    if not ver_link:
-        # fallback: just take the first post/download link on page
-        m = re.search(r'href="(/android/post/\d+)"', r.text)
-        if m:
-            ver_link = m.group(1)
-            print(f"[uptodown] fallback post link: {ver_link}")
-    if not ver_link:
-        print("[uptodown] NO version link; dump sample links")
-        for mm in re.finditer(r'href="([^"]*)"', r.text[:100000]):
-            if "post" in mm.group(1) or "download" in mm.group(1):
-                print("  link:", mm.group(1)[:120])
-        return None
-    if ver_link.startswith("/"):
-        ver_link = BASE + ver_link
-    # 2. version page
-    r2 = s.get(ver_link, timeout=90)
-    print(f"[uptodown] version page status={r2.status_code} len={len(r2.text)} url={ver_link}")
-    # 3. download button: data-url or form action or dw.uptodown link
-    dl_url = None
-    m = re.search(r'data-url="([^"]*)"', r2.text)
-    if m and "download" in m.group(1):
-        dl_url = m.group(1)
-        print(f"[uptodown] data-url: {dl_url}")
-    if not dl_url:
-        m = re.search(r'id="detail-download-button"[^>]*data-url="([^"]*)"', r2.text)
-        if m:
-            dl_url = m.group(1)
-    if not dl_url:
-        m = re.search(r'(https?://dw\.uptodown\.com/[^"\']+\.apk[^"\']*)', r2.text)
-        if m:
-            dl_url = m.group(1)
-            print(f"[uptodown] direct dw link: {dl_url[:150]}")
-    if not dl_url:
-        m = re.search(r'(/post/download/\d+)', r2.text)
-        if m:
-            dl_url = m.group(1)
-    if not dl_url:
-        print("[uptodown] NO download url; dump button area")
-        soup = BeautifulSoup(r2.text, "html.parser")
-        btn = soup.select_one("#detail-download-button")
-        print("  btn html:", str(btn)[:500] if btn else "none")
-        for mm in re.finditer(r'[^"\']*download[^"\']*', r2.text[:200000]):
-            print("  cand:", mm.group(0)[:120])
-        return None
-    if dl_url.startswith("/"):
-        dl_url = BASE + dl_url
-    # 4. hit the download url; expect 302 to dw.uptodown.com CDN
-    r3 = s.get(dl_url, timeout=120, allow_redirects=True, stream=True)
-    print(f"[uptodown] dl status={r3.status_code} final={r3.url[:160]}")
-    total = save_stream(r3)
-    print(f"[uptodown] saved bytes={total}")
-    if total > 1000000:
-        return total
-    # 5. if that returned html, search inside for apk link
-    r3c = None
-    s2 = requests.Session()
-    s2.headers.update(HEADERS)
-    m2 = re.search(r'(https?://[^"\']+\.apk[^"\']*)', r3.text[:500000] if hasattr(r3, "text") else "")
-    if m2:
-        r4 = s2.get(m2.group(1), timeout=300, stream=True)
-        total = save_stream(r4)
-        print(f"[uptodown] second hop saved={total}")
-        return total if total > 1000000 else None
-    return None
+VERSION_PAGE = ("https://www.apkmirror.com/apk/google-inc/android-system-webview/"
+                "android-system-webview-97-0-4692-98-release/")
 
 
 def main():
-    try:
-        ok = uptodown()
-        if ok:
-            print("SUCCESS")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        ctx = browser.new_context(
+            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+            locale="en-US",
+        )
+        page = ctx.new_page()
+
+        # 1. version page
+        print("[pw] goto version page")
+        page.goto(VERSION_PAGE, wait_until="domcontentloaded", timeout=90000)
+        page.wait_for_timeout(3000)
+
+        # 2. find the variant row: APK + armeabi-v7a + not Android 10
+        rows = page.query_selector_all("div.table-row")
+        print(f"[pw] rows: {len(rows)}")
+        target = None
+        for row in rows:
+            txt = row.inner_text()
+            if ("APK" in txt) and ("armeabi-v7a" in txt) and ("Android 10" not in txt):
+                link = row.query_selector('a[href*="apk-download"]')
+                if link:
+                    target = link
+                    print(f"[pw] selected row: {txt[:100]!r}")
+                    break
+        if not target:
+            print("[pw] no row")
+            return 1
+
+        # 3. go to download page
+        with page.expect_navigation(wait_until="domcontentloaded", timeout=90000):
+            target.click()
+        print("[pw] on download page:", page.url)
+        page.wait_for_timeout(3000)
+
+        # 4. click the real downloadButton (href contains /download/?key=)
+        btn = None
+        for a in page.query_selector_all("a.downloadButton, a[href*='/download/?key=']"):
+            href = a.get_attribute("href") or ""
+            if "/download/?key=" in href:
+                btn = a
+                print(f"[pw] found keyed button: {href[:120]}")
+                break
+        if not btn:
+            # dump all downloadButton hrefs
+            for a in page.query_selector_all("a.downloadButton"):
+                print("[pw] dlbtn:", (a.get_attribute("href") or "")[:150])
+            print("[pw] NO keyed button")
+            return 1
+
+        # 5. click -> expect download
+        try:
+            with page.expect_download(timeout=120000) as dl_info:
+                btn.click()
+            download = dl_info.value
+            print("[pw] download suggested:", download.suggested_filename)
+            download.save_as(OUT)
+            print("[pw] saved:", OUT)
             return 0
-    except Exception as e:
-        print(f"[uptodown] error: {e}")
-    print("FAILED")
-    return 1
+        except Exception as e:
+            print(f"[pw] expect_download failed: {e}")
+            # fallback: look for .apk response
+            print("[pw] trying direct navigation capture")
+            try:
+                with page.expect_download(timeout=60000) as dl_info2:
+                    page.evaluate("() => { window.location.href = document.querySelector('a[href*=\"/download/?key=\"]').href; }")
+                download2 = dl_info2.value
+                download2.save_as(OUT)
+                print("[pw] saved via fallback:", OUT)
+                return 0
+            except Exception as e2:
+                print(f"[pw] fallback failed: {e2}")
+                return 1
 
 
 if __name__ == "__main__":
