@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Download Android System WebView 97.0.4692.98 (armeabi-v7a / 32-bit) APK.
-APKMirror two-step download via Playwright: click downloadButton -> wait navigation
-to /download/?key= page -> extract real CDN apk link -> download it.
+APKMirror: goto keyed intermediate URL directly; page JS auto-triggers CDN download.
 """
-import re
 import sys
 from playwright.sync_api import sync_playwright
 
@@ -47,83 +45,73 @@ def main():
         page.goto(dl_page, wait_until="domcontentloaded", timeout=90000)
         print("[pw] on:", page.url)
         page.wait_for_timeout(3000)
-        try:
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(1000)
-        except Exception:
-            pass
 
         btn = None
         try:
             page.wait_for_selector('a[href*="/download/?key="]', timeout=30000)
             btn = page.query_selector('a[href*="/download/?key="]')
-            print("[pw] keyed button found")
         except Exception as e:
             print(f"[pw] keyed button not found: {e}")
             return 1
+        keyed = btn.get_attribute("href")
+        keyed_url = BASE + keyed if keyed.startswith("/") else keyed
+        print("[pw] keyed:", keyed_url[:160])
 
-        # Collect all network responses while clicking (catches .apk / CDN redirects)
-        seen = []
-        page.on("response", lambda resp: seen.append(resp.url))
+        # monitor apk responses
+        apk_resps = []
+        page.on("response", lambda r: apk_resps.append(r.url) if (".apk" in r.url or "downloadr" in r.url) else None)
 
-        # click -> should navigate to /download/?key= intermediate page
-        print("[pw] clicking keyed button...")
+        # goto intermediate page; JS should start the real download
+        print("[pw] goto keyed page...")
         try:
-            with page.expect_navigation(wait_until="domcontentloaded", timeout=60000):
+            with page.expect_download(timeout=90000) as dl_info:
                 try:
-                    btn.click()
+                    page.goto(keyed_url, wait_until="domcontentloaded", timeout=90000)
                 except Exception:
-                    btn.click(force=True)
+                    pass
+                page.wait_for_timeout(30000)  # let JS work
+            download = dl_info.value
+            print("[pw] download event:", download.suggested_filename)
+            download.save_as(OUT)
+            print("[pw] saved", OUT)
+            return 0
         except Exception as e:
-            print(f"[pw] nav wait failed (maybe no nav): {e}")
+            print(f"[pw] no download event: {e}")
 
-        page.wait_for_timeout(5000)
-        print("[pw] after click url:", page.url)
-
-        # dump every link on the intermediate page
-        apk_links = []
-        for a in page.query_selector_all("a[href]"):
-            href = a.get_attribute("href") or ""
-            if ".apk" in href or "downloadr" in href or "dw.uptodown" in href or "download" in href:
-                apk_links.append(href)
-                print("[pw] cand link:", href[:200])
-        # meta refresh / iframe / scripts
-        for m in re.finditer(r'(https?://[^\s"\']*\.apk[^\s"\']*)', page.content()):
-            apk_links.append(m.group(1))
-        print("[pw] total apk-ish links:", len(apk_links))
-        # network seen
-        for u in seen:
-            if ".apk" in u or "downloadr" in u:
-                print("[pw] seen resp:", u[:200])
-
-        # try each candidate
-        for u in apk_links:
-            if not u.startswith("http"):
-                u = BASE + u if u.startswith("/") else u
+        # fallback: look at apk responses
+        print("[pw] apk responses seen:", len(apk_resps))
+        for u in apk_resps:
+            print("[pw]   resp:", u[:200])
             try:
-                resp = ctx.request.get(u, timeout=120000)
-                print(f"[pw] fetch {u[:120]} -> {resp.status} len={len(resp.body())}")
-                if len(resp.body()) > 1000000:
+                resp = ctx.request.get(u, timeout=300000)
+                body = resp.body()
+                print(f"[pw]   fetch len={len(body)}")
+                if len(body) > 5000000:
                     with open(OUT, "wb") as f:
-                        f.write(resp.body())
+                        f.write(body)
                     print("[pw] saved", OUT)
                     return 0
-            except Exception as e:
-                print(f"[pw] fetch err {u[:80]}: {e}")
+            except Exception as e2:
+                print(f"[pw]   fetch err: {e2}")
 
-        # fallback: if page is the intermediate with a "start download" flow, click it
-        for sel in ['a[href*=".apk"]', "#download-link", "a[download]", 'a[href*="downloadr2"]']:
+        # fallback 2: current page content may embed final link
+        content = page.content()
+        import re
+        for m in re.finditer(r'(https?://[^\s"\']*\.apk[^\s"\']*)', content):
+            u = m.group(1)
+            print("[pw] page apk link:", u[:200])
             try:
-                el = page.query_selector(sel)
-                if el:
-                    with page.expect_download(timeout=90000) as dl:
-                        el.click(force=True)
-                    dl.value.save_as(OUT)
-                    print("[pw] saved via fallback click", OUT)
+                resp = ctx.request.get(u, timeout=300000)
+                body = resp.body()
+                print(f"[pw]   fetch len={len(body)}")
+                if len(body) > 5000000:
+                    with open(OUT, "wb") as f:
+                        f.write(body)
+                    print("[pw] saved", OUT)
                     return 0
-            except Exception:
-                pass
-        print("[pw] nothing worked")
+            except Exception as e3:
+                print(f"[pw]   err: {e3}")
+        print("[pw] all failed")
         return 1
 
 
